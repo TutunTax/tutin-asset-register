@@ -1,0 +1,13 @@
+{
+  "name": "Tutin Asset Register",
+  "short_name": "AssetReg",
+  "description": "Fixed asset register with IAS 16 accounting depreciation, SARS S11(e)/S12C tax depreciation, and deferred tax — by TutinBooks.",
+  "start_url": "TutinAssetRegister_7_3.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#840811",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
