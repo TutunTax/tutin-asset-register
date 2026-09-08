@@ -237,7 +237,7 @@
 </div>
 
 <div class="app-header">
-  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v7.5</span></div>
+  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v7.6</span></div>
   <div id="hdr-client" class="client-name">No client loaded</div>
   <div class="header-right">
     <button class="btn btn-secondary btn-sm" onclick="newClient()">+ New Client</button>
@@ -723,93 +723,115 @@ function calYearOfFyMonth(fyYear, month) {
   return calYearOfFyMonthDyn(fyYear, month, endMonth);
 }
 
-/** Calculate formula-based monthly depreciation for an asset in a FY year + month */
-function calcMonthly(asset, fyYear, month) {
-  if (asset.taxMethod === 'nodep') return 0; // non-depreciating asset
-  if (!asset.acquisitionDate) return 0;
-  const acqDate = new Date(asset.acquisitionDate);
-  const calYear = calYearOfFyMonth(fyYear, month);
-  const m = ALL_MONTHS_NUM[month];
-  // Month start/end
-  const monthStart = new Date(calYear, m - 1, 1);
-  const monthEnd   = new Date(calYear, m, 0); // last day
+// ── Per-render monthly accumulation cache ────────────────────────────────────
+// _monthAccum[assetId+':'+fyYear] = array of 12 computed monthly amounts in FY order
+// Built once per asset per year on first access, reused for all subsequent months.
+let _monthAccum = {};
+function _clearMonthAccum() { _monthAccum = {}; }
 
-  // Acquisition-month rule:
-  //   Acquired on the 1st–15th → full month's depreciation in acquisition month.
-  //   Acquired on the 16th or later → no depreciation in acquisition month;
-  //   depreciation starts the following month.
-  const acqDay = acqDate.getDate();
-  const acqMonthStart = new Date(acqDate.getFullYear(), acqDate.getMonth(), 1);
-  const deprStartMonth = acqDay <= 15 ? acqMonthStart
-    : new Date(acqDate.getFullYear(), acqDate.getMonth() + 1, 1); // first of next month
+/** Compute and cache all 12 monthly depreciation amounts for an asset in a FY.
+ *  Uses a single forward pass — no recursion. */
+function _buildMonthAccum(asset, fyYear) {
+  const key = asset.id + ':' + fyYear;
+  if (_monthAccum[key]) return _monthAccum[key];
 
-  // This month hasn't reached the depreciation start yet
-  if (monthStart < deprStartMonth) return 0;
-
-  // Disposed before this month?
-  if (asset.disposed && asset.disposalDate) {
-    const dispDate = new Date(asset.disposalDate);
-    if (dispDate < monthStart) return 0;
+  const { months: fyMonths } = getFYBoundaries(fyYear);
+  // Opening accum from locked history (previous FY closing)
+  let runningAccum = 0;
+  if (db && db.yearlyHistory) {
+    const prevData = db.yearlyHistory[String(fyYear - 1)];
+    if (prevData && prevData[asset.id] && prevData[asset.id].accumDepr !== undefined) {
+      runningAccum = prevData[asset.id].accumDepr;
+    }
   }
 
   const cost = asset.cost || 0;
   const residual = asset.residual || 0;
-
-  // Use accRate if set; fall back to s11ePeriod when accRate is missing or zero.
+  const depreciableBase = (residual > 1) ? (cost - residual) : cost;
   let rate = (parseFloat(asset.accRate) || 0) / 100;
   if (rate <= 0 && asset.taxMethod === 's11e' && asset.s11ePeriod > 0) {
     rate = 1 / asset.s11ePeriod;
   }
+  const monthlyDepr = (rate > 0 && cost > 0) ? (depreciableBase * rate / 12) : 0;
 
-  if (rate <= 0 || cost <= 0) return 0;
-
-  // Annual depreciation — R1 residual is a floor, not an economic scrap value.
-  const depreciableBase = (residual > 1) ? (cost - residual) : cost;
-  const annualDepr  = depreciableBase * rate;
-  const monthlyDepr = annualDepr / 12;
-
-  // Check if fully depreciated using yearlyHistory opening accum (previous FY closing).
-  const accumFromHistory = getHistoricAccumDepr(asset, fyYear, month);
-  if (accumFromHistory !== null) {
-    if (cost - accumFromHistory <= 1) return 0;
-  } else {
-    // No history: estimate accumulated depreciation up to start of this month.
-    // Count full months from deprStartMonth up to (but not including) this monthStart.
-    const acqY  = deprStartMonth.getFullYear();
-    const acqMo = deprStartMonth.getMonth(); // 0-based
-    const curY  = monthStart.getFullYear();
-    const curMo = monthStart.getMonth();     // 0-based
-    const totalMonths = (curY - acqY) * 12 + (curMo - acqMo); // months already charged
-    const roughAccum  = totalMonths * monthlyDepr;
-    if (roughAccum >= cost - 1) return 0;
-    // Cap so we don't overshoot R1 floor
-    const remaining = (cost - 1) - roughAccum;
-    if (monthlyDepr > remaining) return Math.round(remaining * 10000) / 10000;
-  }
-
-  // If yearlyHistory has a CLOSING balance for this FY, use it as a hard cap on
-  // total depreciation for the year. This prevents formula months from overcharging
-  // in the final partial year (e.g. when the asset hits cost-1 mid-year and the
-  // JSON closing is lower than 12 × monthlyDepr would produce).
-  const fyClosingData = db?.yearlyHistory?.[String(fyYear)]?.[asset.id];
-  if (fyClosingData && fyClosingData.accumDepr !== undefined) {
-    const fyClosing = fyClosingData.accumDepr;
-    const openingAccum = accumFromHistory || 0;
-    const fyBudget = Math.max(0, fyClosing - openingAccum); // total allowed depr this FY
-    // Sum months already processed this FY (before this month) to get running total
-    const { months: fyMonths } = getFYBoundaries(fyYear);
-    let runningAccum = 0;
-    for (const priorM of fyMonths) {
-      if (priorM === month) break; // stop before current month
-      const priorEff = getEffectiveMonthly(asset, fyYear, priorM);
-      runningAccum += priorEff.amount || 0;
+  // FY closing from history — cap total depreciation for this year
+  let fyBudget = null;
+  if (db && db.yearlyHistory) {
+    const yrData = db.yearlyHistory[String(fyYear)];
+    if (yrData && yrData[asset.id] && yrData[asset.id].accumDepr !== undefined) {
+      fyBudget = Math.max(0, yrData[asset.id].accumDepr - runningAccum);
     }
-    const remaining = fyBudget - runningAccum;
-    if (remaining <= 0) return 0;
-    if (monthlyDepr > remaining) return Math.round(remaining * 10000) / 10000;
   }
 
-  return Math.round(monthlyDepr * 10000) / 10000;
+  const acqDate = asset.acquisitionDate ? new Date(asset.acquisitionDate) : null;
+  const acqDay = acqDate ? acqDate.getDate() : 1;
+  const deprStartMonth = acqDate
+    ? (acqDay <= 15
+        ? new Date(acqDate.getFullYear(), acqDate.getMonth(), 1)
+        : new Date(acqDate.getFullYear(), acqDate.getMonth() + 1, 1))
+    : null;
+
+  const results = {};
+  let fyAccum = 0;
+
+  for (const m of fyMonths) {
+    // Check override first
+    const ov = getOverride(asset.id, fyYear, m);
+    if (ov !== null) {
+      results[m] = ov.amount || 0;
+      fyAccum += results[m];
+      continue;
+    }
+
+    // nodep or no rate
+    if (asset.taxMethod === 'nodep' || monthlyDepr <= 0 || !acqDate) {
+      results[m] = 0; continue;
+    }
+
+    const calYear = calYearOfFyMonth(fyYear, m);
+    const mn = ALL_MONTHS_NUM[m];
+    const monthStart = new Date(calYear, mn - 1, 1);
+
+    // Not yet reached depreciation start
+    if (monthStart < deprStartMonth) { results[m] = 0; continue; }
+
+    // Disposed before this month
+    if (asset.disposed && asset.disposalDate) {
+      if (new Date(asset.disposalDate) < monthStart) { results[m] = 0; continue; }
+    }
+
+    // Already fully depreciated at opening
+    if (cost - runningAccum <= 1) { results[m] = 0; continue; }
+
+    // FY budget exhausted
+    if (fyBudget !== null && fyAccum >= fyBudget) { results[m] = 0; continue; }
+
+    let amt = monthlyDepr;
+
+    // Cap at R1 floor
+    const remaining = (cost - 1) - runningAccum - fyAccum;
+    if (amt > remaining) amt = Math.max(0, Math.round(remaining * 10000) / 10000);
+
+    // Cap at remaining FY budget
+    if (fyBudget !== null) {
+      const budgetLeft = fyBudget - fyAccum;
+      if (amt > budgetLeft) amt = Math.max(0, Math.round(budgetLeft * 10000) / 10000);
+    }
+
+    results[m] = Math.round(amt * 10000) / 10000;
+    fyAccum += results[m];
+  }
+
+  _monthAccum[key] = results;
+  return results;
+}
+
+/** Calculate formula-based monthly depreciation for an asset in a FY year + month */
+function calcMonthly(asset, fyYear, month) {
+  if (asset.taxMethod === 'nodep') return 0;
+  if (!asset.acquisitionDate) return 0;
+  const amounts = _buildMonthAccum(asset, fyYear);
+  return amounts[month] !== undefined ? amounts[month] : 0;
 }
 
 /** Get historic accumulated depreciation from yearlyHistory for an asset before this month
@@ -848,7 +870,8 @@ function getEffectiveMonthly(asset, fyYear, month) {
 // Cleared at the start of every renderDashboard call.
 // Keys: "acc:assetId:fyYear"  and  "tax:assetId:fyYear"
 let _deprCache = {};
-function _clearDeprCache() { _deprCache = {}; }
+function _clearDeprCache() { _deprCache = {}; _clearMonthAccum(); }
+function _clearMonthAccum() { _monthAccum = {}; }
 
 /** Get FY accumulated depreciation for an asset at CLOSING of fyYear.
  *  yearlyHistory[yr].accumDepr stores the CLOSING accumulated depreciation for that FY.
