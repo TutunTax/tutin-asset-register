@@ -194,14 +194,50 @@
   .toast.toast-show { opacity: 1; transform: translateX(-50%) translateY(0); }
   .toast.toast-green { background: var(--green); }
   .toast.toast-red { background: var(--red); }
+
+  /* Loading overlay */
+  #loading-overlay {
+    display: none; position: fixed; inset: 0; z-index: 9000;
+    background: rgba(255,255,255,0.82); backdrop-filter: blur(2px);
+    flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  }
+  #loading-overlay.visible { display: flex; }
+  .loading-spinner {
+    width: 36px; height: 36px; border: 3px solid var(--border2);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-label { font-size: 13px; font-weight: 600; color: var(--text2); }
+  .loading-sub { font-size: 11px; color: var(--text3); }
+
+  /* Sticky PPE table header */
+  #ppe-scroll-wrap { max-height: 480px; overflow-y: auto; overflow-x: auto; }
+  #ppe-scroll-wrap .tbl thead th { position: sticky; top: 0; z-index: 2; box-shadow: 0 1px 0 var(--border2); }
+
+  /* Edit button in PPE table */
+  .ppe-edit-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 2px 6px; font-size: 10px; font-weight: 600; border-radius: 3px;
+    border: 1px solid var(--border2); background: var(--white); color: var(--accent);
+    cursor: pointer; opacity: 0; transition: opacity .15s;
+    white-space: nowrap; margin-left: 6px; vertical-align: middle;
+  }
+  .tbl tr.asset-row:hover .ppe-edit-btn { opacity: 1; }
 </style>
 </head>
 <body>
 
 <div id="toast" class="toast"></div>
 
+<div id="loading-overlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-label">Loading client data…</div>
+  <div class="loading-sub" id="loading-sub-text">Parsing asset register</div>
+</div>
+
 <div class="app-header">
-  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v7.3</span></div>
+  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v7.4</span></div>
   <div id="hdr-client" class="client-name">No client loaded</div>
   <div class="header-right">
     <button class="btn btn-secondary btn-sm" onclick="newClient()">+ New Client</button>
@@ -246,7 +282,7 @@
           <button class="btn btn-secondary btn-sm" onclick="expandAllGroups(false)">Collapse all</button>
         </div>
       </div>
-      <div id="dash-ppe-table" style="overflow-x:auto;"></div>
+      <div id="ppe-scroll-wrap"><div id="dash-ppe-table"></div></div>
     </div>
     
     <div class="card">
@@ -1011,21 +1047,44 @@ function newClient() {
 
 function loadClient() { document.getElementById('file-input').click(); }
 
+function showLoading(msg) {
+  const ov = document.getElementById('loading-overlay');
+  const sub = document.getElementById('loading-sub-text');
+  if (msg) sub.textContent = msg;
+  ov.classList.add('visible');
+}
+function hideLoading() {
+  document.getElementById('loading-overlay').classList.remove('visible');
+}
+
 function onFileLoad(e) {
   const file = e.target.files[0];
   if (!file) return;
   fileHandle = null; // plain file input has no FS handle
+  showLoading(`Reading ${file.name}…`);
   const reader = new FileReader();
   reader.onload = ev => {
     try {
+      document.getElementById('loading-sub-text').textContent = 'Parsing asset register…';
       db = JSON.parse(ev.target.result);
       if (!db.overrides) db.overrides = {};
       if (!db.yearlyHistory) db.yearlyHistory = {};
       if (!db.monthlyConfirmations) db.monthlyConfirmations = {};
       document.getElementById('hdr-client').textContent = db.client?.name || file.name;
+      document.getElementById('loading-sub-text').textContent = 'Computing depreciation…';
       populateYearSelects();
-      showTab('dashboard');
-    } catch(err) { alert('Error loading JSON: ' + err.message); }
+      // Use setTimeout so the browser can repaint the loading message before the heavy render
+      setTimeout(() => {
+        try {
+          showTab('dashboard');
+        } finally {
+          hideLoading();
+        }
+      }, 30);
+    } catch(err) {
+      hideLoading();
+      alert('Error loading JSON: ' + err.message);
+    }
   };
   reader.readAsText(file);
   e.target.value = '';
@@ -1183,6 +1242,7 @@ function renderDashboard() {
       <th>Asset</th><th>Acq. Date</th><th class="r">Cost</th>
       <th class="r">Acc. Depr (Acc)</th><th class="r">BV (Acc)</th>
       <th class="r">Acc. Depr (Tax)</th><th class="r">BV (Tax)</th>
+      <th style="width:32px;"></th>
     </tr></thead><tbody>`;
   
   let gTotalCost=0, gTotalAccum=0, gTotalBV=0, gTotalTaxAccum=0, gTotalTaxBV=0;
@@ -1214,13 +1274,16 @@ function renderDashboard() {
       <td class="r mono">${fmt(grpBV)}</td>
       <td class="r mono">${grpTaxAccum ? '('+fmt(grpTaxAccum)+')' : '—'}</td>
       <td class="r mono">${grpTaxBV ? fmt(grpTaxBV) : '—'}</td>
+      <td></td>
     </tr>`;
 
     // Individual asset rows — hidden when group is collapsed
     gd.assets.forEach(({asset, accum, bv, taxAccum, taxBV}) => {
       ppeHtml += `<tr class="asset-row${expanded?'':' hidden'}" data-group="${g.id}">
         <td>
-          <div style="font-weight:500">${asset.description}</div>
+          <div style="font-weight:500">${asset.description}
+            <button class="ppe-edit-btn" onclick="event.stopPropagation();openAssetModal('${asset.id}')" title="Edit asset">✎ Edit</button>
+          </div>
           ${asset.serialNo ? `<div style="font-size:10px;color:var(--text3);">${asset.serialNo}</div>` : ''}
         </td>
         <td>${asset.acquisitionDate||'—'}</td>
@@ -1229,6 +1292,7 @@ function renderDashboard() {
         <td class="r mono">${fmt(bv)}</td>
         <td class="r mono">${taxAccum !== null ? '('+fmt(taxAccum)+')' : '—'}</td>
         <td class="r mono">${taxBV !== null ? fmt(taxBV) : '—'}</td>
+        <td></td>
       </tr>`;
     });
 
@@ -1243,6 +1307,7 @@ function renderDashboard() {
     <td class="r mono">${fmt(gTotalBV)}</td>
     <td class="r mono">(${fmt(gTotalTaxAccum)})</td>
     <td class="r mono">${fmt(gTotalTaxBV)}</td>
+    <td></td>
   </tr></tbody></table>`;
   
   document.getElementById('dash-ppe-table').innerHTML = ppeHtml;
