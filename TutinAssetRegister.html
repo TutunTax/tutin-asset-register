@@ -237,7 +237,7 @@
 </div>
 
 <div class="app-header">
-  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v7.4</span></div>
+  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v7.5</span></div>
   <div id="hdr-client" class="client-name">No client loaded</div>
   <div class="header-right">
     <button class="btn btn-secondary btn-sm" onclick="newClient()">+ New Client</button>
@@ -844,17 +844,29 @@ function getEffectiveMonthly(asset, fyYear, month) {
   return { amount: amt, isOverride: false, isHistory: false };
 }
 
+// ── Render-time memoisation cache ────────────────────────────────────────────
+// Cleared at the start of every renderDashboard call.
+// Keys: "acc:assetId:fyYear"  and  "tax:assetId:fyYear"
+let _deprCache = {};
+function _clearDeprCache() { _deprCache = {}; }
+
 /** Get FY accumulated depreciation for an asset at CLOSING of fyYear.
  *  yearlyHistory[yr].accumDepr stores the CLOSING accumulated depreciation for that FY.
  *  Falls back to summing all monthly amounts if no history available.
  *  Always capped at cost-1 (asset never depreciates below the R1 floor). */
 function getAccumDeprForFY(asset, fyYear) {
-  if (asset.taxMethod === 'nodep') return 0; // non-depreciating asset
+  const cacheKey = 'acc:' + asset.id + ':' + fyYear;
+  if (cacheKey in _deprCache) return _deprCache[cacheKey];
+
+  if (asset.taxMethod === 'nodep') { _deprCache[cacheKey] = 0; return 0; }
   const cost = asset.cost || 0;
+  let result;
   if (db && db.yearlyHistory) {
     const yrData = db.yearlyHistory[String(fyYear)];
     if (yrData && yrData[asset.id] && yrData[asset.id].accumDepr !== undefined) {
-      return Math.min(yrData[asset.id].accumDepr, cost - 1);
+      result = Math.min(yrData[asset.id].accumDepr, cost - 1);
+      _deprCache[cacheKey] = result;
+      return result;
     }
   }
   // No history: sum all months from scratch, cap at cost-1
@@ -867,7 +879,9 @@ function getAccumDeprForFY(asset, fyYear) {
       total += eff.amount || 0;
     }
   }
-  return Math.min(Math.round(total * 100) / 100, cost - 1);
+  result = Math.min(Math.round(total * 100) / 100, cost - 1);
+  _deprCache[cacheKey] = result;
+  return result;
 }
 
 /** Get the OPENING accumulated depreciation for an asset at start of fyYear
@@ -905,50 +919,58 @@ function getFYDepr(asset, fyYear) {
 // accumTaxDepr in yearlyHistory[yr] stores the CLOSING tax accumulated depreciation for that FY.
 // When no history exists (new client), calculates from formula using the asset's tax method and period.
 function getTaxAccumDepr(asset, fyYear) {
+  const cacheKey = 'tax:' + asset.id + ':' + fyYear;
+  if (cacheKey in _deprCache) return _deprCache[cacheKey];
+
+  let result;
+
   // 1. Try yearlyHistory first (migrated clients)
   if (db && db.yearlyHistory) {
     const yrData = db.yearlyHistory[String(fyYear)];
     if (yrData && yrData[asset.id] &&
         yrData[asset.id].accumTaxDepr !== undefined &&
         yrData[asset.id].accumTaxDepr !== null) {
-      return yrData[asset.id].accumTaxDepr;
+      result = yrData[asset.id].accumTaxDepr;
+      _deprCache[cacheKey] = result;
+      return result;
     }
   }
 
   // 2. No history — calculate from formula
-  if (asset.taxMethod === 'none' || asset.taxMethod === 'nodep') return null; // no tax depr on this asset
+  if (asset.taxMethod === 'none' || asset.taxMethod === 'nodep') {
+    _deprCache[cacheKey] = null; return null;
+  }
 
   const cost = asset.cost || 0;
-  if (!cost) return null;
+  if (!cost) { _deprCache[cacheKey] = null; return null; }
 
   if (asset.taxMethod === 's12c') {
     // 40/20/20/20 over 4 FY years from acquisition
-    if (!asset.acquisitionDate) return null;
+    if (!asset.acquisitionDate) { _deprCache[cacheKey] = null; return null; }
     const acqDate = new Date(asset.acquisitionDate);
-    // Which FY year was this asset first in use? Uses dynamic fyEnd.
-    const acqM = acqDate.getMonth() + 1; // 1-12
+    const acqM = acqDate.getMonth() + 1;
     const acqCalYear = acqDate.getFullYear();
     const { endMonth: s12cEnd } = parseFYEnd();
     const acqFY = fyForMonthDyn(acqCalYear, NUM_TO_MONTH[acqM], s12cEnd);
-    const yearsIn = fyYear - acqFY; // 0=first year, 1=second, etc.
-    if (yearsIn < 0) return null;
+    const yearsIn = fyYear - acqFY;
+    if (yearsIn < 0) { _deprCache[cacheKey] = null; return null; }
     const rates = [0.40, 0.20, 0.20, 0.20];
     let accum = 0;
     for (let i = 0; i <= Math.min(yearsIn, 3); i++) accum += cost * rates[i];
-    return Math.min(Math.round(accum * 100) / 100, cost - 1); // R1 floor
+    result = Math.min(Math.round(accum * 100) / 100, cost - 1);
+    _deprCache[cacheKey] = result;
+    return result;
   }
 
-  // s11e — same straight-line formula as accounting, but using s11ePeriod not accRate
+  // s11e — straight-line, using s11ePeriod, no residual on tax basis
   if (asset.taxMethod === 's11e') {
     const period = asset.s11ePeriod || 0;
-    if (!period) return null;
-    const taxRate = 1 / period; // e.g. 0.20 for 5yr
-    if (!asset.acquisitionDate) return null;
-
+    if (!period) { _deprCache[cacheKey] = null; return null; }
+    if (!asset.acquisitionDate) { _deprCache[cacheKey] = null; return null; }
+    const taxRate = 1 / period;
     const acqDate = new Date(asset.acquisitionDate);
-    const annualDepr = cost * taxRate; // no residual on tax basis
+    const annualDepr = cost * taxRate;
     const monthlyDepr = annualDepr / 12;
-
     let total = 0;
     const { endMonth: _em } = parseFYEnd();
     for (let yr = 2018; yr <= fyYear; yr++) {
@@ -956,21 +978,21 @@ function getTaxAccumDepr(asset, fyYear) {
         const mn = ALL_MONTHS_NUM[m];
         const calYear = calYearOfFyMonthDyn(yr, m, _em);
         const monthStart = new Date(calYear, mn - 1, 1);
-        const monthEnd   = new Date(calYear, mn, 0);
-
-        // Apply 15th-of-month rule: acquired 1–15 → full month; 16+ → skip month
         const acqDay2 = acqDate.getDate();
         const taxDeprStart = acqDay2 <= 15
           ? new Date(acqDate.getFullYear(), acqDate.getMonth(), 1)
           : new Date(acqDate.getFullYear(), acqDate.getMonth() + 1, 1);
         if (monthStart < taxDeprStart) continue;
-        if (total >= cost - 1) break; // R1 floor reached
+        if (total >= cost - 1) break;
         total += monthlyDepr;
       }
     }
-    return Math.min(Math.round(total * 100) / 100, cost - 1);
+    result = Math.min(Math.round(total * 100) / 100, cost - 1);
+    _deprCache[cacheKey] = result;
+    return result;
   }
 
+  _deprCache[cacheKey] = null;
   return null;
 }
 
@@ -1161,6 +1183,7 @@ function populateGroupFilter(id) {
 // ═══════════════════════════════════════════════════════
 function renderDashboard() {
   if (!db) return;
+  _clearDeprCache(); // clear memoisation cache for this render pass
   const fyYear = parseInt(document.getElementById('dash-year').value);
   const fyBounds = getFYBoundaries(fyYear);
   document.getElementById('dash-ppe-title').textContent = 
@@ -1532,6 +1555,7 @@ function renderAssets() {
 // ═══════════════════════════════════════════════════════
 function renderMonthly() {
   if (!db) return;
+  _clearDeprCache();
   const fyYear = parseInt(document.getElementById('monthly-year').value);
   const groupFilter = document.getElementById('monthly-group').value;
   
@@ -1687,6 +1711,7 @@ function clearAllOverrides() {
 // ═══════════════════════════════════════════════════════
 function renderHistory() {
   if (!db) return;
+  _clearDeprCache();
   const fyYear = parseInt(document.getElementById('hist-year').value);
   const groupFilter = document.getElementById('hist-group').value;
   
