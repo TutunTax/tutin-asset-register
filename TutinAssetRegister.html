@@ -3,7 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- PWA manifest -->
 <link rel="manifest" href="manifest.json">
+<!-- Apple PWA support -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="AssetReg">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#840811">
 <meta name="theme-color" content="#840811">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -179,7 +186,19 @@
   .tbl tr.asset-row td { padding-left:28px; }
   .tbl tr.asset-row { transition:opacity .1s; }
   .tbl tr.asset-row.hidden { display:none; }
-  
+
+  /* Frozen-header scroll wrapper for monthly and assets tables */
+  .frozen-wrap { overflow:auto; max-height:520px; }
+  .frozen-wrap thead th { position:sticky; top:0; z-index:3; box-shadow:0 1px 0 var(--border2); }
+  .frozen-wrap thead th.sticky-left { position:sticky; left:0; z-index:4; }
+  .frozen-wrap td.sticky-left { position:sticky; left:0; background:var(--white); z-index:1; }
+  .frozen-wrap tr.group-header td.sticky-left { background:var(--surface2); }
+  .frozen-wrap tr.subtotal td.sticky-left { background:var(--surface); }
+  .frozen-wrap tr.grand-total td.sticky-left { background:#f0f0ec; }
+
+  /* Monthly collapsed group rows */
+  .mo-asset-row.mo-hidden { display:none; }
+
   @media (max-width:768px) {
     .grid-2, .grid-3, .grid-4 { grid-template-columns:1fr; }
   }
@@ -194,6 +213,13 @@
   .toast.toast-show { opacity: 1; transform: translateX(-50%) translateY(0); }
   .toast.toast-green { background: var(--green); }
   .toast.toast-red { background: var(--red); }
+
+  /* Journal preview modal table */
+  .journal-tbl { width:100%; border-collapse:collapse; font-size:11px; }
+  .journal-tbl th { background:var(--surface); padding:5px 8px; text-align:left; font-weight:600; border-bottom:1px solid var(--border); }
+  .journal-tbl td { padding:4px 8px; border-bottom:1px solid var(--border); }
+  .journal-tbl tr:last-child td { border-bottom:none; }
+  .journal-tbl .r { text-align:right; font-family:'JetBrains Mono',monospace; }
 </style>
 </head>
 <body>
@@ -201,11 +227,12 @@
 <div id="toast" class="toast"></div>
 
 <div class="app-header">
-  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v7.7</span></div>
+  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v10.2</span></div>
   <div id="hdr-client" class="client-name">No client loaded</div>
   <div class="header-right">
     <button class="btn btn-secondary btn-sm" onclick="newClient()">+ New Client</button>
     <button class="btn btn-secondary btn-sm" onclick="loadClient()">📂 Load Client</button>
+    <span id="dirty-indicator" style="display:none;font-size:10px;color:var(--amber);font-weight:600;padding:0 4px;">● Unsaved</span>
     <button class="btn btn-secondary btn-sm" onclick="saveClient(false)" title="Save to same file (or download if not yet saved)">💾 Save</button>
     <button class="btn btn-primary btn-sm" onclick="saveClient(true)" title="Choose where to save">💾 Save As…</button>
   </div>
@@ -217,8 +244,6 @@
 <div class="app-nav">
   <button onclick="showTab('dashboard')" class="active" id="nav-dashboard">Dashboard</button>
   <button onclick="showTab('assets')" id="nav-assets">Assets</button>
-  <button onclick="showTab('monthly')" id="nav-monthly">Monthly</button>
-  <button onclick="showTab('history')" id="nav-history">History</button>
   <button onclick="showTab('settings')" id="nav-settings">Settings</button>
 </div>
 
@@ -230,32 +255,57 @@
       <div class="section-label">Property, Plant &amp; Equipment</div>
       <div class="sep"></div>
       <label style="font-size:12px;font-weight:500;color:var(--text2);">Year ended:</label>
-      <select id="dash-year" onchange="renderDashboard()" style="width:auto;">
-        <option>2027</option><option>2026</option><option>2025</option><option>2024</option><option>2023</option><option>2022</option><option>2021</option>
+      <select id="dash-year" onchange="renderDashboard()" style="width:auto;"></select>
+      <span id="dash-year-closed-badge" style="display:none;" class="badge badge-green">🔒 Year Closed</span>
+      <span id="dash-year-open-badge"   style="display:none;" class="badge badge-amber">Open Year</span>
+      <div class="sep"></div>
+      <label style="font-size:12px;font-weight:500;color:var(--text2);">Group:</label>
+      <select id="dash-group-filter" onchange="renderDashboard()" style="width:auto;"><option value="">All groups</option></select>
+      <label style="font-size:12px;font-weight:500;color:var(--text2);">Show:</label>
+      <select id="dash-section-filter" onchange="renderDashboard()" style="width:auto;">
+        <option value="">All</option>
+        <option value="existing">Existing</option>
+        <option value="additions">Additions</option>
+        <option value="disposals">Disposals</option>
       </select>
+      <div class="sep"></div>
+      <button id="btn-close-year"  class="btn btn-secondary btn-sm" onclick="closeYear()"  style="display:none;">🔒 Close Year</button>
+      <button id="btn-reopen-year" class="btn btn-secondary btn-sm" onclick="reopenYear()" style="display:none;">🔓 Reopen Year</button>
+      <div class="sep"></div>
+      <button class="btn btn-secondary btn-sm" onclick="toggleMonthCols()" id="btn-toggle-months" title="Show/hide monthly columns">📅 Hide Months</button>
       <button class="btn btn-secondary btn-sm" onclick="exportPDF()">⬇ Export PDF</button>
     </div>
-    
+
     <div class="grid-4" id="dash-stats"></div>
-    
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title" id="dash-ppe-title">PPE Note</div>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <button class="btn btn-secondary btn-sm" onclick="expandAllGroups(true)">Expand all</button>
-          <button class="btn btn-secondary btn-sm" onclick="expandAllGroups(false)">Collapse all</button>
+
+    <!-- Main register table — spreadsheet layout -->
+    <div class="card" style="padding:0;">
+      <div class="card-header" style="padding:10px 14px;">
+        <div class="card-title" id="dash-reg-title">Asset Register</div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-secondary btn-sm" onclick="dashExpandAll(true)">Expand all</button>
+          <button class="btn btn-secondary btn-sm" onclick="dashExpandAll(false)">Collapse all</button>
         </div>
       </div>
-      <div id="dash-ppe-table" style="overflow-x:auto;"></div>
-    </div>
-    
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title">Carrying Value Movement — Accounting &amp; Tax Basis</div>
+      <div class="frozen-wrap" id="dash-reg-wrap" style="max-height:600px;">
+        <div id="dash-reg-table"></div>
       </div>
+    </div>
+
+    <!-- Post Journals section -->
+    <div class="card" id="dash-journals-card">
+      <div class="card-header">
+        <div class="card-title">Post Depreciation Journals</div>
+        <div style="font-size:11px;color:var(--text3);">Post &amp; Lock each month after processing in your accounting system</div>
+      </div>
+      <div id="dash-journals-body" style="padding:14px;"></div>
+    </div>
+
+    <!-- Movement & Deferred Tax -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">Carrying Value Movement — Accounting &amp; Tax Basis</div></div>
       <div id="dash-movement-table" style="overflow-x:auto;"></div>
     </div>
-    
     <div class="card">
       <div class="card-header"><div class="card-title">Deferred Tax</div></div>
       <div id="dash-deferred-tax" style="padding:14px;"></div>
@@ -265,61 +315,25 @@
   <!-- ═══ ASSETS ═══ -->
   <div id="tab-assets" class="tab-panel">
     <div class="toolbar">
-      <input type="search" placeholder="Search assets…" id="asset-search" onkeyup="renderAssets()" style="width:240px;">
-      <select id="asset-group-filter" onchange="renderAssets()" style="width:auto;">
-        <option value="">All groups</option>
-      </select>
-      <div class="sep"></div>
-      <button class="btn btn-primary btn-sm" onclick="openAssetModal(null)">+ Add Asset</button>
+      <input type="search" placeholder="Search assets…" id="asset-search" oninput="renderAssets()" style="width:220px;">
+      <select id="asset-group-filter" onchange="renderAssets()" style="width:auto;"><option value="">All groups</option></select>
     </div>
-    <div class="card">
-      <div id="assets-table-wrap" style="overflow-x:auto;"></div>
-    </div>
-  </div>
-
-  <!-- ═══ MONTHLY ═══ -->
-  <div id="tab-monthly" class="tab-panel">
-    <div class="info-box blue" style="margin-bottom:4px;">
-      <strong>Override mode:</strong> Click any amount to enter an override for that month. Override amounts (shown in blue) are stored in the JSON and override the formula. 
-      Clear an override to revert to calculated. This lets you balance to finalized figures without changing the formula.
-    </div>
-    <div class="toolbar">
-      <label style="font-size:12px;font-weight:500;">Year:</label>
-      <select id="monthly-year" onchange="renderMonthly()" style="width:auto;"></select>
-      <label style="font-size:12px;font-weight:500;">Group:</label>
-      <select id="monthly-group" onchange="renderMonthly()" style="width:auto;"><option value="">All</option></select>
-      <div class="sep"></div>
-      <button class="btn btn-secondary btn-sm" onclick="clearAllOverrides()">Clear all overrides for year</button>
-    </div>
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title" id="monthly-card-title">Monthly Depreciation</div>
-        <div id="monthly-totals-row" style="font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text2);"></div>
+    <div style="display:flex;gap:0;height:calc(100vh - 140px);overflow:hidden;">
+      <!-- Left: asset list -->
+      <div style="width:42%;min-width:320px;overflow-y:auto;border-right:1px solid var(--border);display:flex;flex-direction:column;">
+        <div style="padding:8px 12px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;">
+          <button class="btn btn-primary btn-sm" style="width:100%;" onclick="openAssetModal(null)">+ Add Asset</button>
+        </div>
+        <div id="assets-list-wrap" style="flex:1;overflow-y:auto;"></div>
       </div>
-      <div id="monthly-table-wrap" class="monthly-grid"></div>
-    </div>
-    <div class="card" id="monthly-confirm-card">
-      <div class="card-header"><div class="card-title">Month Confirmations</div></div>
-      <div id="monthly-confirm-body" style="padding:14px;"></div>
-    </div>
-  </div>
-
-  <!-- ═══ HISTORY ═══ -->
-  <div id="tab-history" class="tab-panel">
-    <div class="info-box amber" style="margin-bottom:4px;">
-      Historic data imported from your spreadsheet. Select a year and asset to view month-by-month figures. You can also edit override amounts here.
-    </div>
-    <div class="toolbar">
-      <label style="font-size:12px;font-weight:500;">Year:</label>
-      <select id="hist-year" onchange="renderHistory()" style="width:auto;"></select>
-      <label style="font-size:12px;font-weight:500;">Group:</label>
-      <select id="hist-group" onchange="renderHistory()" style="width:auto;"><option value="">All</option></select>
-      <div class="sep"></div>
-      <button class="btn btn-secondary btn-sm" onclick="importFromXLSX()">📥 Import from spreadsheet</button>
-    </div>
-    <div class="card">
-      <div class="card-header"><div class="card-title" id="hist-card-title">Historic Monthly Depreciation</div></div>
-      <div id="hist-table-wrap" class="monthly-grid"></div>
+      <!-- Right: asset detail + ledger -->
+      <div style="flex:1;overflow-y:auto;padding:0 16px 16px;">
+        <div id="asset-detail-wrap">
+          <div style="display:flex;align-items:center;justify-content:center;height:200px;color:var(--text3);font-size:13px;">
+            Select an asset to view its ledger
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -354,6 +368,39 @@
       <div class="card-body">
         <textarea id="s-notes" rows="5" style="font-size:12px;"></textarea>
         <button class="btn btn-secondary btn-sm" onclick="saveNotes()" style="margin-top:8px;">Save Notes</button>
+      </div>
+    </div>
+
+    <div class="card" style="grid-column:1/-1;">
+      <div class="card-header">
+        <div class="card-title">Accounting System &amp; Journal Accounts</div>
+        <button class="btn btn-primary btn-sm" onclick="saveAccountingSettings()">Save</button>
+      </div>
+      <div class="card-body">
+        <div class="form-group" style="max-width:280px;margin-bottom:16px;">
+          <label>Accounting System</label>
+          <select id="s-accsys">
+            <option value="sage">Sage 200 / Sage One</option>
+            <option value="qbo">QuickBooks Online</option>
+            <option value="generic">Generic (CSV)</option>
+          </select>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:12px;">
+          Configure the Sage/QBO account names for each asset group. These appear in journal CSV exports.
+          Leave blank to use the default account name.
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="tbl" style="min-width:700px;" id="s-accounts-table">
+            <thead><tr>
+              <th>Group</th>
+              <th>Depreciation Expense Account</th>
+              <th>Accumulated Depreciation Account</th>
+              <th>Asset Cost Account</th>
+              <th>Asset Disposal Account</th>
+            </tr></thead>
+            <tbody id="s-accounts-body"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -479,6 +526,7 @@
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('asset-modal')">Cancel</button>
       <button class="btn btn-danger btn-sm" id="m-delete-btn" onclick="deleteAsset()" style="display:none;margin-right:auto;">Delete Asset</button>
+      <button class="btn btn-secondary btn-sm" id="m-disposal-journal-btn" onclick="generateDisposalJournal()" style="display:none;" title="Download disposal journal CSV for Sage/QBO">⬇ Disposal Journal</button>
       <button class="btn btn-primary" onclick="saveAsset()">Save Asset</button>
     </div>
   </div>
@@ -542,6 +590,26 @@
 // STATE
 // ═══════════════════════════════════════════════════════
 let db = null;
+let _isDirty = false;
+
+function _markDirty() {
+  if (!_isDirty) {
+    _isDirty = true;
+    _updateDirtyIndicator();
+  }
+}
+function _markClean() {
+  _isDirty = false;
+  _updateDirtyIndicator();
+}
+function _updateDirtyIndicator() {
+  const ind = document.getElementById('dirty-indicator');
+  if (ind) ind.style.display = _isDirty ? '' : 'none';
+}
+// Warn before closing/navigating away with unsaved changes
+window.addEventListener('beforeunload', e => {
+  if (_isDirty) { e.preventDefault(); e.returnValue = ''; }
+});
 let editingAssetId = null;
 let editingGroupId = null;
 let overrideContext = null; // {assetId, year, month}
@@ -642,7 +710,6 @@ function getFYBoundaries(fyYear) {
 // Legacy constants kept for code that hasn't been migrated — these are Feb-end defaults.
 // All rendering functions use getFYBoundaries() instead.
 const MONTHS = ['Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb'];
-const FY_MONTHS = {'Mar':3,'Apr':4,'May':5,'Jun':6,'Jul':7,'Aug':8,'Sep':9,'Oct':10,'Nov':11,'Dec':12,'Jan':1,'Feb':2};
 
 function fmt(n) {
   if (n === null || n === undefined || isNaN(n)) return '—';
@@ -665,8 +732,9 @@ function uid() { return Math.random().toString(36).substr(2,7); }
 // FY month order for Feb year-end: Mar Apr May Jun Jul Aug Sep Oct Nov Dec Jan Feb
 // ─────────────────────────────────────────────────────────────────────────────────
 
-const FY_MONTHS = ['Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb'];
-const MONTH_NUM = {Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
+// Use existing constants: MONTHS (array), ALL_MONTHS_NUM (month→number map)
+const FY_MONTHS = MONTHS;          // alias — same array
+const MONTH_NUM = ALL_MONTHS_NUM;  // alias — same map
 
 /** Last calendar date of a month within a FY (Feb year-end) */
 function fyMonthEndDate(fyYear, monthAbbr) {
@@ -681,30 +749,50 @@ let _cache = {};
 function _clearCache() { _cache = {}; }
 
 /** Closing accumulated accounting depreciation for an asset at end of fyYear.
- *  Positive number. Returns 0 for nodep assets. */
+ *  Positive number. Returns 0 for nodep assets with no ledger data. */
 function getAccumDeprForFY(asset, fyYear) {
   const ck = 'acc:' + asset.id + ':' + fyYear;
   if (ck in _cache) return _cache[ck];
 
-  if (asset.taxMethod === 'nodep') { _cache[ck] = 0; return 0; }
   const cost = asset.cost || 0;
   let result;
 
-  // ── Ledger path (new engine) ──────────────────────────────────────────
+  // ── Ledger path (new engine) — checked first, even for nodep assets ───
   if (db && db.ledger) {
     const opening = (db.openings || {})[asset.id] || 0;
-    let total = opening;
     const assetLedger = db.ledger[asset.id] || {};
-    // Sum all FY years from 2023 up to and including fyYear
-    const startFY = parseInt((db.meta || {}).firstLedgerFY || 2023);
-    for (let yr = startFY; yr <= fyYear; yr++) {
-      const months = assetLedger[String(yr)] || [];
-      for (const m of months) total += (m || 0);
+    if (opening > 0 || Object.keys(assetLedger).length > 0) {
+      const startFY  = parseInt((db.meta || {}).firstLedgerFY || 2023);
+      const lastLedgerFY = Math.max(...Object.keys(assetLedger).map(Number).filter(n=>!isNaN(n)), startFY - 1);
+
+      // Sum ledger years up to the last available year
+      let total = opening;
+      for (let yr = startFY; yr <= Math.min(fyYear, lastLedgerFY); yr++) {
+        const months = assetLedger[String(yr)] || [];
+        for (const m of months) total += (m || 0);
+      }
+
+      // If fyYear is beyond last ledger year, add formula-computed months for open years
+      if (fyYear > lastLedgerFY && asset.taxMethod !== 'nodep') {
+        const ledgerClose = Math.round(total * 100) / 100;
+        // Use _calcMonthlyFormula for each open year, starting from ledger closing accum
+        for (let openYr = lastLedgerFY + 1; openYr <= fyYear; openYr++) {
+          // Temporarily cache the prior year result so _calcMonthlyFormula can use it
+          const priorCk = 'acc:' + asset.id + ':' + (openYr - 1);
+          if (!(priorCk in _cache)) _cache[priorCk] = Math.min(total, cost - 1);
+          const amounts = _calcMonthlyFormula(asset, openYr);
+          for (const amt of amounts) total += (amt || 0);
+        }
+      }
+
+      result = Math.min(Math.round(total * 100) / 100, cost - 1);
+      _cache[ck] = result;
+      return result;
     }
-    result = Math.min(Math.round(total * 100) / 100, cost - 1);
-    _cache[ck] = result;
-    return result;
   }
+
+  // nodep with no ledger data — truly non-depreciating
+  if (asset.taxMethod === 'nodep') { _cache[ck] = 0; return 0; }
 
   // ── Legacy path (yearlyHistory) ───────────────────────────────────────
   if (db && db.yearlyHistory) {
@@ -764,6 +852,40 @@ function getTaxAccumDepr(asset, fyYear) {
     if (ts !== undefined && ts !== null) {
       _cache[ck] = ts; return ts;
     }
+    // If fyYear is beyond last taxSummary year, project forward using S11e formula
+    const taxYears = Object.keys(db.taxSummary[asset.id] || {}).map(Number).filter(n=>!isNaN(n));
+    if (taxYears.length > 0) {
+      const lastTaxFY = Math.max(...taxYears);
+      if (fyYear > lastTaxFY) {
+        const lastTaxAccum = (db.taxSummary[asset.id] || {})[String(lastTaxFY)] || 0;
+        const cost = asset.cost || 0;
+        // Project using S11e formula from last known tax accum
+        if (asset.taxMethod === 's11e' && asset.s11ePeriod > 0) {
+          const annualDepr = cost / asset.s11ePeriod;
+          const yearsToAdd = fyYear - lastTaxFY;
+          const projected  = Math.min(lastTaxAccum + annualDepr * yearsToAdd, cost - 1);
+          const res1 = Math.round(projected * 100) / 100;
+          _cache[ck] = res1;
+          return res1;
+        } else if (asset.taxMethod === 's12c') {
+          if (!asset.acquisitionDate) { _cache[ck] = null; return null; }
+          const acqDate2 = new Date(asset.acquisitionDate);
+          const { endMonth: s12cEnd2 } = parseFYEnd();
+          const acqFY2 = acqDate2.getMonth() < s12cEnd2 ? acqDate2.getFullYear() : acqDate2.getFullYear() + 1;
+          const yearsIn2 = fyYear - acqFY2;
+          if (yearsIn2 < 0) { _cache[ck] = null; return null; }
+          const rates2 = [0.40, 0.20, 0.20, 0.20];
+          let accum2 = 0;
+          for (let i = 0; i <= Math.min(yearsIn2, 3); i++) accum2 += cost * rates2[i];
+          const res2 = Math.min(Math.round(accum2 * 100) / 100, cost - 1);
+          _cache[ck] = res2;
+          return res2;
+        }
+        const res3 = lastTaxAccum;
+        _cache[ck] = res3;
+        return res3;
+      }
+    }
   }
 
   // ── Legacy yearlyHistory ──────────────────────────────────────────────
@@ -822,7 +944,8 @@ function getOpeningAccumDeprForFY(asset, fyYear) {
 /** Carrying value at end of FY */
 function getCarryingValue(asset, fyYear) {
   if (asset.taxMethod === 'nodep') return asset.cost || 0;
-  return Math.max(1, (asset.cost || 0) - getAccumDeprForFY(asset, fyYear));
+  const floor = Math.max(asset.residual || 0, 1);
+  return Math.max(floor, (asset.cost || 0) - getAccumDeprForFY(asset, fyYear));
 }
 
 /** FY depreciation charge (accounting) for an asset */
@@ -863,43 +986,56 @@ function getMonthlyAmounts(asset, fyYear) {
   return arr;
 }
 
-/** Compute all 12 monthly amounts via formula — single forward pass */
+/** Compute all 12 monthly amounts via formula — single forward pass.
+ *  Formula: (cost - residual) / (period * 12) per month.
+ *  Stops when BV reaches residual (or R1 if no residual set). */
 function _calcMonthlyFormula(asset, fyYear) {
   if (asset.taxMethod === 'nodep' || !asset.acquisitionDate) return new Array(12).fill(0);
-  const cost = asset.cost || 0;
+  const cost     = asset.cost || 0;
   const residual = asset.residual || 0;
-  let rate = (parseFloat(asset.accRate) || 0) / 100;
-  if (rate <= 0 && asset.taxMethod === 's11e' && asset.s11ePeriod > 0) rate = 1 / asset.s11ePeriod;
-  if (rate <= 0 || cost <= 0) return new Array(12).fill(0);
-  const base = (residual > 1) ? (cost - residual) : cost;
-  const monthlyDepr = base * rate / 12;
-  const acqDate = new Date(asset.acquisitionDate);
-  const acqDay = acqDate.getDate();
+  const floor    = Math.max(residual, 1); // stop at residual or R1 minimum
+  const period   = asset.s11ePeriod || 0;
+  if (cost <= 0) return new Array(12).fill(0);
+
+  // Monthly amount: (cost - residual) / (period * 12)
+  // If no period, derive from accRate
+  let monthlyDepr;
+  if (period > 0) {
+    monthlyDepr = (cost - residual) / (period * 12);
+  } else {
+    let rate = (parseFloat(asset.accRate) || 0) / 100;
+    if (rate <= 0) return new Array(12).fill(0);
+    monthlyDepr = (cost - residual) * rate / 12;
+  }
+  if (monthlyDepr <= 0) return new Array(12).fill(0);
+
+  const acqDate  = new Date(asset.acquisitionDate);
+  const acqDay   = acqDate.getDate();
   const deprStart = acqDay <= 15
     ? new Date(acqDate.getFullYear(), acqDate.getMonth(), 1)
     : new Date(acqDate.getFullYear(), acqDate.getMonth() + 1, 1);
 
   // Opening accum at start of this FY
   let runningAccum = getAccumDeprForFY(asset, fyYear - 1);
-  const fyBudget = null; // formula year — no hard cap
   const results = [];
 
   for (const monthAbbr of FY_MONTHS) {
-    // Check override
     const ov = getOverride(asset.id, fyYear, monthAbbr);
     if (ov !== null) { results.push(ov.amount || 0); runningAccum += (ov.amount || 0); continue; }
 
-    const monthEnd = fyMonthEndDate(fyYear, monthAbbr);
+    const monthEnd   = fyMonthEndDate(fyYear, monthAbbr);
     const monthStart = new Date(monthEnd.getFullYear(), monthEnd.getMonth(), 1);
 
     if (monthStart < deprStart) { results.push(0); continue; }
     if (asset.disposed && asset.disposalDate && new Date(asset.disposalDate) < monthStart) {
       results.push(0); continue;
     }
-    if (cost - runningAccum <= 1) { results.push(0); continue; }
+    // Stop when BV has reached residual (floor)
+    if (cost - runningAccum <= floor) { results.push(0); continue; }
 
     let amt = monthlyDepr;
-    const remaining = (cost - 1) - runningAccum;
+    // Don't depreciate below residual
+    const remaining = (cost - floor) - runningAccum;
     if (amt > remaining) amt = Math.max(0, Math.round(remaining * 10000) / 10000);
 
     results.push(Math.round(amt * 10000) / 10000);
@@ -965,10 +1101,8 @@ function showTab(name) {
   document.getElementById('tab-' + name).classList.add('active');
   document.getElementById('nav-' + name).classList.add('active');
   if (name === 'dashboard') renderDashboard();
-  if (name === 'assets') renderAssets();
-  if (name === 'monthly') renderMonthly();
-  if (name === 'history') renderHistory();
-  if (name === 'settings') renderSettings();
+  if (name === 'assets')    renderAssets();
+  if (name === 'settings')  renderSettings();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1011,6 +1145,7 @@ function newClient() {
     groups: [],
     assets: [],
     monthlyConfirmations: {},
+    closedYears: [],
     yearlyHistory: {},
     overrides: {},
     meta: { accumDeprSemantic: 'closing', created: new Date().toISOString() }
@@ -1021,35 +1156,58 @@ function newClient() {
   showToast('New client created — fill in Settings then add groups and assets.', '');
 }
 
-function loadClient() { document.getElementById('file-input').click(); }
+function loadClient() {
+  // Use File System Access API on Chrome/Edge — gives a writable handle for silent Save
+  if (window.showOpenFilePicker) {
+    window.showOpenFilePicker({
+      types: [{ description: 'JSON Files', accept: { 'application/json': ['.json'] } }],
+      multiple: false
+    }).then(async ([handle]) => {
+      fileHandle = handle;
+      const file = await handle.getFile();
+      const text = await file.text();
+      _processLoadedJSON(text, file.name);
+    }).catch(err => {
+      if (err.name !== 'AbortError') {
+        // Fall back to input if picker fails
+        document.getElementById('file-input').click();
+      }
+    });
+  } else {
+    document.getElementById('file-input').click();
+  }
+}
+
+function _processLoadedJSON(text, displayName) {
+  try {
+    db = JSON.parse(text);
+    if (!db.overrides) db.overrides = {};
+    if (!db.yearlyHistory) db.yearlyHistory = {};
+    if (!db.monthlyConfirmations) db.monthlyConfirmations = {};
+    if (!db.closedYears) db.closedYears = [];
+    _isDirty = false;
+    _updateDirtyIndicator();
+    if (db.ledger && db.meta && !db.meta.firstLedgerFY) {
+      let minFY = 9999;
+      for (const aid in db.ledger) {
+        for (const yr in db.ledger[aid]) {
+          if (parseInt(yr) < minFY) minFY = parseInt(yr);
+        }
+      }
+      if (minFY < 9999) db.meta.firstLedgerFY = minFY;
+    }
+    document.getElementById('hdr-client').textContent = db.client?.name || displayName;
+    populateYearSelects();
+    showTab('dashboard');
+  } catch(err) { alert('Error loading JSON: ' + err.message); }
+}
 
 function onFileLoad(e) {
   const file = e.target.files[0];
   if (!file) return;
-  fileHandle = null; // plain file input has no FS handle
+  fileHandle = null; // plain file input — no writable handle
   const reader = new FileReader();
-  reader.onload = ev => {
-    try {
-      db = JSON.parse(ev.target.result);
-      if (!db.overrides) db.overrides = {};
-      if (!db.yearlyHistory) db.yearlyHistory = {};
-      if (!db.monthlyConfirmations) db.monthlyConfirmations = {};
-      // Ledger engine: ensure meta.firstLedgerFY is set
-      if (db.ledger && db.meta && !db.meta.firstLedgerFY) {
-        // Find first year that appears in any asset's ledger
-        let minFY = 9999;
-        for (const aid in db.ledger) {
-          for (const yr in db.ledger[aid]) {
-            if (parseInt(yr) < minFY) minFY = parseInt(yr);
-          }
-        }
-        if (minFY < 9999) db.meta.firstLedgerFY = minFY;
-      }
-      document.getElementById('hdr-client').textContent = db.client?.name || file.name;
-      populateYearSelects();
-      showTab('dashboard');
-    } catch(err) { alert('Error loading JSON: ' + err.message); }
-  };
+  reader.onload = ev => _processLoadedJSON(ev.target.result, file.name);
   reader.readAsText(file);
   e.target.value = '';
 }
@@ -1074,6 +1232,7 @@ async function saveClient(saveAs) {
       const writable = await fileHandle.createWritable();
       await writable.write(json);
       await writable.close();
+      _markClean();
       // Update header to reflect saved name
       const savedName = fileHandle.name.replace('_AssetRegister.json','').replace(/_/g,' ');
       document.getElementById('hdr-client').textContent = db.client?.name || savedName;
@@ -1092,6 +1251,7 @@ async function saveClient(saveAs) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
+  _markClean();
   showToast(`✓ Downloaded — ${filename}`, 'green');
 }
 
@@ -1100,17 +1260,18 @@ function populateYearSelects() {
   const currentYear = db.client?.currentYear || new Date().getFullYear();
   const years = [];
   for (let y = currentYear; y >= currentYear - 6; y--) years.push(y);
-  
-  ['dash-year', 'monthly-year', 'hist-year'].forEach(id => {
-    const sel = document.getElementById(id);
-    if (!sel) return;
-    sel.innerHTML = years.map(y => `<option value="${y}"${y===currentYear?' selected':''}>${y}</option>`).join('');
+
+  const dashSel = document.getElementById('dash-year');
+  if (dashSel) dashSel.innerHTML = years.map(y =>
+    `<option value="${y}"${y===currentYear?' selected':''}>${y}</option>`).join('');
+
+  // Populate group filters
+  const gOpts = '<option value="">All groups</option>' +
+    (db.groups||[]).map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
+  ['dash-group-filter','asset-group-filter'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = gOpts;
   });
-  
-  // Group filters
-  populateGroupFilter('monthly-group');
-  populateGroupFilter('hist-group');
-  populateGroupFilter('asset-group-filter');
 }
 
 function populateGroupFilter(id) {
@@ -1121,203 +1282,564 @@ function populateGroupFilter(id) {
 }
 
 // ═══════════════════════════════════════════════════════
-// DASHBOARD
+// DASHBOARD — main working page (spreadsheet layout)
 // ═══════════════════════════════════════════════════════
-function renderDashboard() {
+
+let _dashGroupState = {};
+let _showMonthCols  = true;
+
+function _initGroupState() {
   if (!db) return;
-  _clearCache();
-  const fyYear = parseInt(document.getElementById('dash-year').value);
-  const fyBounds = getFYBoundaries(fyYear);
-  document.getElementById('dash-ppe-title').textContent = 
-    `Property, Plant & Equipment — Year ended ${fyBounds.fyEndLabel}`;
-  
-  // Compute per-group, per-asset data
-  const groups = db.groups || [];
-
-  const fyEnd   = fyBounds.fyEndDate;
-  const fyStart = fyBounds.fyStartDate;
-  const assets = (db.assets || []).filter(a => {
-    if (!a.acquisitionDate) return true; // no date = include
-    const acq = new Date(a.acquisitionDate);
-    if (acq > fyEnd) return false;       // acquired after this FY — exclude
-    if (a.disposed && a.disposalDate) {
-      const disp = new Date(a.disposalDate);
-      if (disp < fyStart) return false;  // disposed before this FY started — exclude
+  (db.groups||[]).forEach(g => {
+    if (!_dashGroupState[g.id]) {
+      _dashGroupState[g.id] = {open:false, existing:true, additions:true, disposals:true};
     }
-    return true;
   });
-
-  let totalCost = 0, totalAccumDepr = 0, totalTaxAccum = 0;
-
-  // Stats
-  const activeAssets = assets.length;
-
-  // Build group data
-  const groupData = {};
-  groups.forEach(g => { groupData[g.id] = { group: g, assets: [] }; });
-
-  assets.forEach(a => {
-    if (!groupData[a.groupId]) groupData[a.groupId] = { group: { name: '(ungrouped)', id: a.groupId }, assets: [] };
-    const accum = getAccumDeprForFY(a, fyYear);
-    const bv = Math.max(1, (a.cost || 0) - accum);
-    const taxAccum = getTaxAccumDepr(a, fyYear);
-    const taxBV = taxAccum !== null ? Math.max(1, (a.cost || 0) - taxAccum) : null;
-    groupData[a.groupId].assets.push({ asset: a, accum, bv, taxAccum, taxBV });
-    totalCost += (a.cost || 0);
-    totalAccumDepr += accum;
-    if (taxAccum !== null) totalTaxAccum += taxAccum;
-  });
-  
-  const totalBV = totalCost - totalAccumDepr;
-  const totalTaxBV = totalCost - totalTaxAccum;
-  const tempDiff = totalBV - totalTaxBV;
-  const taxRate = (db.client?.taxRate || 27) / 100;
-  const deferredTax = tempDiff * taxRate;
-  
-  // Stats cards
-  document.getElementById('dash-stats').innerHTML = `
-    <div class="stat-box">
-      <div class="stat-label">Total Cost</div>
-      <div class="stat-value mono">R ${fmt(totalCost)}</div>
-      <div class="stat-sub">${activeAssets} active assets</div>
-    </div>
-    <div class="stat-box">
-      <div class="stat-label">Accounting BV</div>
-      <div class="stat-value mono">R ${fmt(totalBV)}</div>
-      <div class="stat-sub">Accum depr: R ${fmt(totalAccumDepr)}</div>
-    </div>
-    <div class="stat-box">
-      <div class="stat-label">Tax BV</div>
-      <div class="stat-value mono">R ${fmt(totalTaxBV)}</div>
-      <div class="stat-sub">Accum tax depr: R ${fmt(totalTaxAccum)}</div>
-    </div>
-    <div class="stat-box">
-      <div class="stat-label">Deferred Tax Liability</div>
-      <div class="stat-value mono" style="color:var(--accent)">R ${fmt(deferredTax)}</div>
-      <div class="stat-sub">Temp diff: R ${fmt(tempDiff)} @ ${db.client?.taxRate||27}%</div>
-    </div>
-  `;
-  
-  // PPE Table — collapsible tree view
-  // Track which groups are expanded (persist across re-renders)
-  if (!window.ppeGroupExpanded) window.ppeGroupExpanded = {};
-
-  let ppeHtml = `<table class="tbl" id="ppe-table">
-    <thead><tr>
-      <th>Asset</th><th>Acq. Date</th><th class="r">Cost</th>
-      <th class="r">Acc. Depr (Acc)</th><th class="r">BV (Acc)</th>
-      <th class="r">Acc. Depr (Tax)</th><th class="r">BV (Tax)</th>
-    </tr></thead><tbody>`;
-  
-  let gTotalCost=0, gTotalAccum=0, gTotalBV=0, gTotalTaxAccum=0, gTotalTaxBV=0;
-  
-  groups.forEach(g => {
-    const gd = groupData[g.id];
-    if (!gd || !gd.assets.length) return;
-
-    // Default: collapsed
-    if (window.ppeGroupExpanded[g.id] === undefined) window.ppeGroupExpanded[g.id] = false;
-    const expanded = window.ppeGroupExpanded[g.id];
-    const arrow = expanded ? '▾' : '▸';
-    
-    let grpCost=0, grpAccum=0, grpBV=0, grpTaxAccum=0, grpTaxBV=0;
-    gd.assets.forEach(({asset, accum, bv, taxAccum, taxBV}) => {
-      grpCost += asset.cost||0;
-      grpAccum += accum;
-      grpBV += bv;
-      if (taxAccum !== null) { grpTaxAccum += taxAccum; grpTaxBV += taxBV||0; }
-    });
-
-    // Group header row — shows totals, click to expand/collapse
-    ppeHtml += `<tr class="group-header" onclick="togglePPEGroup('${g.id}')">
-      <td colspan="2"><span class="group-toggle" id="gt-${g.id}">${arrow}</span><strong>${g.name}</strong>
-        <span style="font-size:10px;color:var(--text3);font-weight:400;margin-left:6px;">${gd.assets.length} asset${gd.assets.length!==1?'s':''}</span>
-      </td>
-      <td class="r mono">${fmt(grpCost)}</td>
-      <td class="r mono">(${fmt(grpAccum)})</td>
-      <td class="r mono">${fmt(grpBV)}</td>
-      <td class="r mono">${grpTaxAccum ? '('+fmt(grpTaxAccum)+')' : '—'}</td>
-      <td class="r mono">${grpTaxBV ? fmt(grpTaxBV) : '—'}</td>
-    </tr>`;
-
-    // Individual asset rows — hidden when group is collapsed
-    gd.assets.forEach(({asset, accum, bv, taxAccum, taxBV}) => {
-      ppeHtml += `<tr class="asset-row${expanded?'':' hidden'}" data-group="${g.id}">
-        <td>
-          <div style="font-weight:500">${asset.description}</div>
-          ${asset.serialNo ? `<div style="font-size:10px;color:var(--text3);">${asset.serialNo}</div>` : ''}
-        </td>
-        <td>${asset.acquisitionDate||'—'}</td>
-        <td class="r mono">${fmt(asset.cost)}</td>
-        <td class="r mono">(${fmt(accum)})</td>
-        <td class="r mono">${fmt(bv)}</td>
-        <td class="r mono">${taxAccum !== null ? '('+fmt(taxAccum)+')' : '—'}</td>
-        <td class="r mono">${taxBV !== null ? fmt(taxBV) : '—'}</td>
-      </tr>`;
-    });
-
-    gTotalCost += grpCost; gTotalAccum += grpAccum; gTotalBV += grpBV;
-    gTotalTaxAccum += grpTaxAccum; gTotalTaxBV += grpTaxBV;
-  });
-  
-  ppeHtml += `<tr class="grand-total">
-    <td colspan="2">Total</td>
-    <td class="r mono">${fmt(gTotalCost)}</td>
-    <td class="r mono">(${fmt(gTotalAccum)})</td>
-    <td class="r mono">${fmt(gTotalBV)}</td>
-    <td class="r mono">(${fmt(gTotalTaxAccum)})</td>
-    <td class="r mono">${fmt(gTotalTaxBV)}</td>
-  </tr></tbody></table>`;
-  
-  document.getElementById('dash-ppe-table').innerHTML = ppeHtml;
-  
-  // Movement table (accounting)
-  renderMovementTable(fyYear, groupData, groups);
-  
-  // Deferred tax
-  document.getElementById('dash-deferred-tax').innerHTML = `
-    <table class="tbl" style="max-width:500px;">
-      <tr><td>Accounting carrying value</td><td class="r mono">R ${fmt(gTotalBV)}</td></tr>
-      <tr><td>Tax book value</td><td class="r mono">R ${fmt(gTotalTaxBV)}</td></tr>
-      <tr class="subtotal"><td>Temporary difference</td><td class="r mono">R ${fmt(gTotalBV - gTotalTaxBV)}</td></tr>
-      <tr class="grand-total"><td>Deferred tax liability @ ${db.client?.taxRate||27}%</td>
-        <td class="r mono" style="color:var(--accent);">R ${fmt((gTotalBV - gTotalTaxBV) * (db.client?.taxRate||27)/100)}</td></tr>
-    </table>
-  `;
 }
 
-function expandAllGroups(expand) {
-  if (!db) return;
-  (db.groups||[]).forEach(g => { window.ppeGroupExpanded[g.id] = expand; });
+function toggleMonthCols() {
+  _showMonthCols = !_showMonthCols;
+  const btn = document.getElementById('btn-toggle-months');
+  if (btn) btn.textContent = _showMonthCols ? '📅 Hide Months' : '📅 Show Months';
+  renderDashboard();
+} // {groupId: {open:bool, existing:bool, additions:bool, disposals:bool}}
+
+function dashExpandAll(expand) {
+  (db.groups||[]).forEach(g => {
+    _dashGroupState[g.id] = { open:expand, existing:expand, additions:expand, disposals:expand };
+  });
   renderDashboard();
 }
 
-function togglePPEGroup(groupId) {
-  window.ppeGroupExpanded[groupId] = !window.ppeGroupExpanded[groupId];
-  const expanded = window.ppeGroupExpanded[groupId];
-  // Toggle arrow
-  const arrow = document.getElementById('gt-' + groupId);
-  if (arrow) arrow.textContent = expanded ? '▾' : '▸';
-  // Show/hide asset rows
-  document.querySelectorAll(`#ppe-table tr.asset-row[data-group="${groupId}"]`).forEach(row => {
-    row.classList.toggle('hidden', !expanded);
+function toggleDashGroup(groupId) {
+  if (!_dashGroupState[groupId]) _dashGroupState[groupId] = {open:true,existing:true,additions:true,disposals:true};
+  _dashGroupState[groupId].open = !_dashGroupState[groupId].open;
+  renderDashboard();
+}
+
+function toggleDashSection(groupId, section) {
+  if (!_dashGroupState[groupId]) _dashGroupState[groupId] = {open:true,existing:true,additions:true,disposals:true};
+  _dashGroupState[groupId][section] = !_dashGroupState[groupId][section];
+  renderDashboard();
+}
+
+function renderDashboard() {
+  if (!db) return;
+  _clearCache();
+  _initGroupState();
+  const fyYear      = parseInt(document.getElementById('dash-year').value);
+  const groupFilter = document.getElementById('dash-group-filter').value;
+  const secFilter   = document.getElementById('dash-section-filter').value;
+  const fyBounds    = getFYBoundaries(fyYear);
+  const fyEnd       = fyBounds.fyEndDate;
+  const fyStart     = fyBounds.fyStartDate;
+  const isClosed    = (db.closedYears || []).includes(fyYear);
+  const currentYear = db.client?.currentYear || new Date().getFullYear();
+
+  // Title & badges
+  document.getElementById('dash-reg-title').textContent =
+    `Asset Register — Year ended ${fyBounds.fyEndLabel}`;
+  const cb = document.getElementById('dash-year-closed-badge');
+  const ob = document.getElementById('dash-year-open-badge');
+  if (cb) cb.style.display = isClosed ? '' : 'none';
+  if (ob) ob.style.display = (!isClosed && fyYear === currentYear) ? '' : 'none';
+  const btnClose  = document.getElementById('btn-close-year');
+  const btnReopen = document.getElementById('btn-reopen-year');
+  if (btnClose)  btnClose.style.display  = (!isClosed && fyYear < currentYear) ? '' : 'none';
+  if (btnReopen) btnReopen.style.display = isClosed ? '' : 'none';
+
+  // All assets visible in this FY
+  const allAssets = (db.assets || []).filter(a => {
+    if (!a.acquisitionDate) return true;
+    const acq = new Date(a.acquisitionDate);
+    if (acq > fyEnd) return false;
+    if (a.disposed && a.disposalDate && new Date(a.disposalDate) < fyStart) return false;
+    return true;
   });
+
+  const groups   = (db.groups || []).filter(g => !groupFilter || g.id === groupFilter);
+  const gidName  = {}; (db.groups||[]).forEach(g => { gidName[g.id] = g.name; });
+  const FY_MO    = getFYBoundaries(fyYear).months;
+  const taxRate  = (db.client?.taxRate || 27) / 100;
+
+  // Months header
+  const moHdrs = _showMonthCols ? FY_MO.map(m =>
+    `<th class="r" style="min-width:76px;">${m}<br><small style="font-weight:400;color:var(--text3);">${fyBounds.calYearOf(m)}</small></th>`
+  ).join('') : '';
+
+  const minW = _showMonthCols ? '1700px' : '900px';
+  let tbl = `<table class="tbl" style="min-width:${minW};">
+  <thead>
+    <tr>
+      <th class="sticky-left" style="min-width:260px;width:260px;">Asset</th>
+      <th style="min-width:88px;">Acq Date</th>
+      <th class="r" style="min-width:96px;">Cost (R)</th>
+      <th class="r" style="min-width:84px;">Residual (R)</th>
+      <th class="r" style="min-width:96px;">Acc Depr (R)</th>
+      <th class="r" style="min-width:96px;border-right:2px solid var(--border2);">Opening BV (R)</th>
+      ${moHdrs}
+      <th class="r" style="min-width:90px;font-weight:700;">FY Total</th>
+      <th class="r" style="min-width:96px;">Closing Acc Depr (R)</th>
+      <th class="r" style="min-width:96px;border-left:2px solid var(--border2);">Closing BV (R)</th>
+      <th class="r" style="min-width:96px;">Tax Depr (R)</th>
+      <th class="r" style="min-width:96px;">BV (Tax) (R)</th>
+    </tr>
+  </thead><tbody>`;
+
+  // Grand totals
+  let gTotCost=0,gTotAccum=0,gTotBV=0,gTotFY=0,gTotTaxDepr=0,gTotTaxBV=0;
+  const gTotMo = new Array(12).fill(0);
+
+  groups.forEach(g => {
+    const gassets = allAssets.filter(a => a.groupId === g.id);
+    if (!gassets.length) return;
+
+    if (!_dashGroupState[g.id])
+      _dashGroupState[g.id] = {open:true,existing:true,additions:true,disposals:true};
+    const gs = _dashGroupState[g.id];
+
+    // Classify assets
+    const existing  = gassets.filter(a => {
+      const acq = a.acquisitionDate ? new Date(a.acquisitionDate) : null;
+      return !acq || acq < fyStart;
+    });
+    const additions = gassets.filter(a => {
+      if (!a.acquisitionDate) return false;
+      const acq = new Date(a.acquisitionDate);
+      return acq >= fyStart && acq <= fyEnd;
+    });
+    const disposals = gassets.filter(a => {
+      if (!a.disposed || !a.disposalDate) return false;
+      const d = new Date(a.disposalDate);
+      return d >= fyStart && d <= fyEnd;
+    });
+
+    // Apply section filter
+    if (secFilter === 'existing'  && !existing.length)  return;
+    if (secFilter === 'additions' && !additions.length)  return;
+    if (secFilter === 'disposals' && !disposals.length)  return;
+
+    // Group header total = Existing (positive) + Additions (positive) - Disposals (negative copy)
+    // existing already includes the disposed asset as a positive row
+    // disposals is a SEPARATE negative copy - so net = existing + additions - disposals
+    const allGroupAssets = [...existing, ...additions, ...disposals];
+    let grpCost=0,grpAccumOpen=0,grpFY=0,grpTaxDepr=0;
+    const grpMo = new Array(12).fill(0);
+    existing.forEach(a => {
+      const accumPrior = getAccumDeprForFY(a, fyYear-1);
+      const accumCur   = getAccumDeprForFY(a, fyYear);
+      const fyDepr     = Math.max(0, accumCur - accumPrior);
+      const taxOpen    = getTaxAccumDepr(a, fyYear-1) || 0;
+      const taxClose   = getTaxAccumDepr(a, fyYear)   || 0;
+      const taxDepr    = Math.max(0, taxClose - taxOpen);
+      const amounts    = getMonthlyAmounts(a, fyYear);
+      grpCost      += a.cost || 0;
+      grpAccumOpen += accumPrior;
+      grpFY        += fyDepr;
+      grpTaxDepr   += taxDepr;
+      amounts.forEach((v,i) => { grpMo[i] += v||0; });
+    });
+    additions.forEach(a => {
+      const accumPrior = getAccumDeprForFY(a, fyYear-1);
+      const accumCur   = getAccumDeprForFY(a, fyYear);
+      const fyDepr     = Math.max(0, accumCur - accumPrior);
+      const taxOpen    = getTaxAccumDepr(a, fyYear-1) || 0;
+      const taxClose   = getTaxAccumDepr(a, fyYear)   || 0;
+      const taxDepr    = Math.max(0, taxClose - taxOpen);
+      const amounts    = getMonthlyAmounts(a, fyYear);
+      grpCost      += a.cost || 0;
+      grpAccumOpen += accumPrior;
+      grpFY        += fyDepr;
+      grpTaxDepr   += taxDepr;
+      amounts.forEach((v,i) => { grpMo[i] += v||0; });
+    });
+    disposals.forEach(a => {
+      // Disposal is a negative copy — subtract cost only, NOT opening accum
+      // The disposed asset existed at opening so its accum is correctly in Existing
+      grpCost -= a.cost || 0;
+    });
+    const grpOpenBV     = grpCost - grpAccumOpen;
+    const grpAccumClose = [...existing,...additions].reduce((s,a)=>s+getAccumDeprForFY(a,fyYear),0)
+                        - disposals.reduce((s,a)=>s+getAccumDeprForFY(a,fyYear-1),0);
+    const grpCloseBV    = grpCost - grpAccumClose;
+    const grpTaxBV      = [...existing,...additions].reduce((s,a)=>s+Math.max(0,(a.cost||0)-(getTaxAccumDepr(a,fyYear)||0)),0);
+    const grpAccum      = grpAccumOpen;
+
+    const arrow = gs.open ? '▾' : '▸';
+    const grpRes = allGroupAssets.reduce((s,a) => s + (a.disposed?-1:1)*(a.residual||0), 0);
+    tbl += `<tr class="group-header" onclick="toggleDashGroup('${g.id}')">
+      <td class="sticky-left" style="background:var(--surface2);">
+        <span class="group-toggle">${arrow}</span>
+        <strong>${g.name}</strong>
+        <span style="font-size:10px;font-weight:400;color:var(--text3);margin-left:8px;">${gassets.length} assets</span>
+      </td>
+      <td class="r mono" style="background:var(--surface2);"></td>
+      <td class="r mono" style="font-weight:700;background:var(--surface2);">${fmt(grpCost)}</td>
+      <td class="r mono" style="font-weight:700;background:var(--surface2);">${fmt(grpRes)}</td>
+      <td class="r mono" style="font-weight:700;background:var(--surface2);">(${fmt(grpAccumOpen)})</td>
+      <td class="r mono" style="font-weight:700;background:var(--surface2);border-right:2px solid var(--border2);">${fmt(grpOpenBV)}</td>
+      ${_showMonthCols ? grpMo.map(v=>`<td class="r mono" style="font-weight:700;background:var(--surface2);">${v?fmt(v):'—'}</td>`).join('') : ''}
+      <td class="r mono" style="font-weight:700;background:var(--surface2);">${grpFY?fmt(grpFY):'—'}</td>
+      <td class="r mono" style="font-weight:700;background:var(--surface2);">(${fmt(grpAccumClose)})</td>
+      <td class="r mono" style="font-weight:700;background:var(--surface2);border-left:2px solid var(--border2);">${fmt(grpCloseBV)}</td>
+      <td class="r mono" style="font-weight:700;background:var(--surface2);">${grpTaxDepr?fmt(grpTaxDepr):'—'}</td>
+      <td class="r mono" style="font-weight:700;background:var(--surface2);">${fmt(Math.max(0,grpTaxBV))}</td>
+    </tr>`;
+
+    gTotCost+=grpCost; gTotAccum+=grpAccumOpen; gTotBV+=grpOpenBV;
+    gTotFY+=grpFY; gTotTaxDepr+=grpTaxDepr;
+    gTotTaxBV += grpTaxBV;
+    grpMo.forEach((v,i)=>{ gTotMo[i]+=v; });
+
+    if (!gs.open) return;
+
+    const renderSection = (label, sectionAssets, sectionKey) => {
+      if (!sectionAssets.length) return;
+      if (secFilter && secFilter !== sectionKey) return;
+      const isDispSec = sectionKey === 'disposals';
+      const secOpen   = gs[sectionKey] !== false;
+      const secArrow  = secOpen ? '▾' : '▸';
+
+      // Section totals
+      // Existing: positive. Additions: positive. Disposals: negative (netting out).
+      let secCost=0, secAccum=0, secOpenBV=0, secFY=0;
+      const secMo = new Array(12).fill(0);
+      sectionAssets.forEach(a => {
+        const cost       = a.cost || 0;
+        const accumPrior = getAccumDeprForFY(a, fyYear-1);
+        const accumCur   = getAccumDeprForFY(a, fyYear);
+        const openBV     = Math.max(a.residual||0, cost - accumPrior);
+        const fyDepr     = Math.max(0, accumCur - accumPrior);
+        const amounts    = getMonthlyAmounts(a, fyYear);
+        const sign       = isDispSec ? -1 : 1;
+        secCost   += cost    * sign;
+        secAccum  += accumPrior * sign;
+        secOpenBV += openBV  * sign;
+        secFY     += fyDepr;
+        amounts.forEach((v,i) => { secMo[i] += (v||0); });
+      });
+
+      const secMoCells = _showMonthCols
+        ? secMo.map(v=>`<td class="r mono" style="font-size:11px;">${v?fmt(v):'—'}</td>`).join('') : '';
+
+      const fmtSec = (v, negate) => {
+        if (negate) return v ? `(${fmt(Math.abs(v))})` : '—';
+        return v ? fmt(Math.abs(v)) : '—';
+      };
+
+      tbl += `<tr class="subtotal" onclick="toggleDashSection('${g.id}','${sectionKey}')" style="cursor:pointer;">
+        <td class="sticky-left" style="padding-left:28px;font-size:11px;">
+          <span style="margin-right:6px;">${secArrow}</span><strong>${label}</strong>
+          <span style="margin-left:6px;color:var(--text3);font-weight:400;">(${sectionAssets.length})</span>
+        </td>
+        <td></td>
+        <td class="r mono">${isDispSec?'('+fmt(Math.abs(secCost))+')':fmt(secCost)}</td>
+        <td></td>
+        <td class="r mono">${isDispSec?fmt(Math.abs(secAccum)):'('+fmt(secAccum)+')'}</td>
+        <td class="r mono" style="border-right:2px solid var(--border2);">${isDispSec?'('+fmt(Math.abs(secOpenBV))+')':fmt(secOpenBV)}</td>
+        ${secMoCells}
+        <td class="r mono">${secFY?fmt(secFY):'—'}</td>
+        <td class="r mono">—</td>
+        <td class="r mono" style="border-left:2px solid var(--border2);">—</td>
+        <td></td><td></td>
+      </tr>`;
+      if (!secOpen) return;
+
+      sectionAssets.forEach(a => {
+        const cost     = a.cost || 0;
+        const residual = a.residual || 0;
+        const accumPrior = getAccumDeprForFY(a, fyYear-1);
+        const accumCur   = getAccumDeprForFY(a, fyYear);
+        const openBV     = Math.max(residual, cost - accumPrior);
+        const closingBV  = Math.max(residual, cost - accumCur);
+        const fyDepr     = Math.max(0, accumCur - accumPrior);
+        const taxOpen    = getTaxAccumDepr(a, fyYear-1) || 0;
+        const taxClose   = getTaxAccumDepr(a, fyYear)   || 0;
+        const taxDepr    = Math.max(0, taxClose - taxOpen);
+        const taxBV      = Math.max(0, cost - taxClose);
+        const amounts    = getMonthlyAmounts(a, fyYear);
+
+        let moCells;
+        if (isDispSec) {
+          // Disposal row: locked months unchanged, first open month shows full reversal
+          const confs = (db.monthlyConfirmations||{})[String(fyYear)] || {};
+          let firstOpenIdx = -1;
+          let totalToReverse = amounts.reduce((s,v)=>s+(v||0),0);
+          FY_MO.forEach((m,i) => {
+            if (firstOpenIdx < 0 && !confs[m]?.locked) firstOpenIdx = i;
+          });
+          moCells = FY_MO.map((m,i) => {
+            const locked = confs[m]?.locked === true;
+            const v = amounts[i] || 0;
+            let display;
+            if (locked) {
+              display = v ? fmt(v) : '—';
+            } else if (i === firstOpenIdx && totalToReverse > 0) {
+              display = fmt(totalToReverse);
+            } else {
+              display = '—';
+            }
+            return `<td class="r mono" style="font-size:11px;">${display}</td>`;
+          }).join('');
+        } else {
+          moCells = amounts.map((v,i) => {
+            const m  = FY_MO[i];
+            const ov = getOverride(a.id, fyYear, m);
+            const cls = ov ? 'has-override' : (v===0?'zero':'');
+            const dot = ov ? '<span class="override-dot"></span>' : '';
+            return `<td class="r month-cell" onclick="openOverrideModal('${a.id}',${fyYear},'${m}')"
+                       style="cursor:pointer;font-size:11px;" title="${m}: click to override">
+              <span class="month-val ${cls}">${dot}${v?fmt(v):'—'}</span></td>`;
+          }).join('');
+        }
+
+        const acqStr = a.acquisitionDate ? a.acquisitionDate.substring(0,10) : '—';
+        // Existing/Additions: positive. Disposals: negative copy.
+        const dispIndicator = a.disposed && !isDispSec
+          ? '<span style="font-size:9px;color:var(--text3);margin-left:4px;">(disposed)</span>' : '';
+        const dCost    = isDispSec ? `(${fmt(cost)})` : fmt(cost);
+        const dRes     = isDispSec ? (residual?`(${fmt(residual)})`:'-') : (residual?fmt(residual):'—');
+        const dAccum   = isDispSec ? fmt(accumPrior) : `(${fmt(accumCur)})`;
+        const dOpenBV  = isDispSec ? `(${fmt(openBV)})` : fmt(openBV);
+        const dFYTotal = isDispSec ? fmt(fyDepr) : (fyDepr?fmt(fyDepr):'—');
+        const dCloseBV = isDispSec ? '—' : fmt(closingBV);
+        const dTaxDepr = isDispSec ? '—' : (taxDepr?fmt(taxDepr):'—');
+        const dTaxBV   = isDispSec ? '—' : fmt(taxBV);
+        const rowBg    = isDispSec ? 'background:#fff8f8;' : 'background:var(--white);';
+
+        tbl += `<tr class="asset-row dash-asset-row" data-id="${a.id}">
+          <td class="sticky-left" style="${rowBg}padding-left:36px;">
+            <div style="font-size:11px;font-weight:500;cursor:pointer;" onclick="openAssetModal('${a.id}')" title="Click to edit">
+              ${a.description.length>52?a.description.substring(0,52)+'…':a.description}${dispIndicator}
+            </div>
+            ${a.serialNo?`<div style="font-size:9px;color:var(--text3);">${a.serialNo}</div>`:''}
+          </td>
+          <td style="font-size:10px;color:var(--text2);">${acqStr}</td>
+          <td class="r mono" style="font-size:11px;">${dCost}</td>
+          <td class="r mono" style="font-size:11px;color:var(--text3);">${dRes}</td>
+          <td class="r mono" style="font-size:11px;">${dAccum}</td>
+          <td class="r mono" style="font-size:11px;font-weight:600;border-right:2px solid var(--border2);">${dOpenBV}</td>
+          ${_showMonthCols ? moCells : ''}
+          <td class="r mono" style="font-weight:700;">${dFYTotal}</td>
+          <td class="r mono" style="font-size:11px;">${isDispSec?fmt(accumPrior):'('+fmt(accumCur)+')'}</td>
+          <td class="r mono" style="font-size:11px;border-left:2px solid var(--border2);font-weight:600;">${dCloseBV}</td>
+          <td class="r mono" style="font-size:11px;color:var(--text3);">${dTaxDepr}</td>
+          <td class="r mono" style="font-size:11px;">${dTaxBV}</td>
+        </tr>`;
+      });
+    };
+
+    renderSection('Existing',  existing,  'existing');
+    renderSection('Additions', additions, 'additions');
+    renderSection('Disposals', disposals, 'disposals');
+  });
+
+  // Grand total row
+  const gTotRes = (db.assets||[]).reduce((s,a) => s + (a.disposed?-1:1)*(a.residual||0), 0);
+  const gTotOpenBV  = gTotCost - gTotAccum;
+  const gTotCloseBV = activeGroups => {
+    let tot = 0;
+    (db.assets||[]).filter(a=>!a.disposed).forEach(a => {
+      tot += Math.max(a.residual||0, (a.cost||0) - getAccumDeprForFY(a, fyYear));
+    });
+    return tot;
+  };
+  const gCloseBV = gTotCloseBV();
+  tbl += `<tr class="grand-total">
+    <td class="sticky-left" style="background:#f0f0ec;">Grand Total</td>
+    <td></td>
+    <td class="r mono">${fmt(gTotCost)}</td>
+    <td class="r mono">${fmt(gTotRes)}</td>
+    <td class="r mono">(${fmt(gTotAccum)})</td>
+    <td class="r mono" style="font-weight:700;border-right:2px solid var(--border2);">${fmt(Math.max(0,gTotOpenBV))}</td>
+    ${_showMonthCols ? gTotMo.map(v=>`<td class="r mono">${v?fmt(v):'—'}</td>`).join('') : ''}
+    <td class="r mono" style="font-weight:700;">${fmt(gTotFY)}</td>
+    <td class="r mono" style="font-weight:700;">(${fmt(gTotAccum + gTotFY)})</td>
+    <td class="r mono" style="font-weight:700;border-left:2px solid var(--border2);">${fmt(gCloseBV)}</td>
+    <td class="r mono">${fmt(gTotTaxDepr)}</td>
+    <td class="r mono">${fmt(Math.max(0,gTotTaxBV))}</td>
+  </tr></tbody></table>`;
+
+  document.getElementById('dash-reg-table').innerHTML = tbl;
+
+  // Stat cards
+  const taxRate2 = (db.client?.taxRate || 27) / 100;
+  const tempDiff = gTotBV - Math.max(0, gTotTaxBV);
+  document.getElementById('dash-stats').innerHTML = `
+    <div class="stat-card"><div class="stat-label">Total Cost</div>
+      <div class="stat-value">R ${fmt(gTotCost)}</div>
+      <div class="stat-sub">${allAssets.length} active assets</div></div>
+    <div class="stat-card"><div class="stat-label">Accounting BV</div>
+      <div class="stat-value">R ${fmt(gTotBV)}</div>
+      <div class="stat-sub">Accum depr: R ${fmt(gTotAccum)}</div></div>
+    <div class="stat-card"><div class="stat-label">Tax BV</div>
+      <div class="stat-value">R ${fmt(Math.max(0,gTotTaxBV))}</div>
+      <div class="stat-sub">Accum tax depr: R ${fmt(gTotAccum + gTotTaxDepr)}</div></div>
+    <div class="stat-card"><div class="stat-label">Deferred Tax Liability</div>
+      <div class="stat-value" style="color:var(--accent);">R ${fmt(tempDiff * taxRate2)}</div>
+      <div class="stat-sub">Temp diff: R ${fmt(tempDiff)} @ ${db.client?.taxRate||27}%</div></div>`;
+
+  // Journals section
+  renderDashJournals(fyYear, isClosed);
+
+  // Movement & deferred tax
+  renderMovementTable(fyYear, null, db.groups||[]);
+
+  const dtDiff = gTotBV - Math.max(0, gTotTaxBV);
+  document.getElementById('dash-deferred-tax').innerHTML = `
+    <table class="tbl" style="max-width:500px;">
+      <tr><td>Accounting carrying value</td><td class="r mono">R ${fmt(gTotBV)}</td></tr>
+      <tr><td>Tax book value</td><td class="r mono">R ${fmt(Math.max(0,gTotTaxBV))}</td></tr>
+      <tr class="subtotal"><td>Temporary difference</td><td class="r mono">R ${fmt(dtDiff)}</td></tr>
+      <tr class="grand-total"><td>Deferred tax liability @ ${db.client?.taxRate||27}%</td>
+        <td class="r mono" style="color:var(--accent);">R ${fmt(dtDiff*(db.client?.taxRate||27)/100)}</td></tr>
+    </table>`;
+}
+
+function renderDashJournals(fyYear, isClosed) {
+  const confs   = (db.monthlyConfirmations || {})[String(fyYear)] || {};
+  const fyB     = getFYBoundaries(fyYear);
+  let html = '<div style="display:flex;flex-wrap:wrap;gap:8px;">';
+
+  fyB.months.forEach(m => {
+    const c      = confs[m] || {};
+    const locked = c.locked === true;
+    const calYr  = fyB.calYearOf(m);
+
+    // Month total
+    let tot = 0;
+    (db.assets||[]).forEach(a => {
+      const idx = FY_MONTHS.indexOf(m);
+      tot += getMonthlyAmounts(a, fyYear)[idx] || 0;
+    });
+
+    const bg    = locked ? 'var(--green-light)' : 'var(--white)';
+    const badge = locked ? '<span class="badge badge-green">Posted</span>'
+                         : isClosed ? '<span class="badge badge-gray">Year Closed</span>'
+                         : '<span class="badge badge-gray">Draft</span>';
+
+    html += `<div style="min-width:190px;padding:10px;border:1px solid var(--border);border-radius:4px;background:${bg};">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <strong style="font-size:12px;">${m} ${calYr}</strong>${badge}
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">
+        R ${fmt(tot)}${locked&&c.journalRef?`<br>Ref: ${c.journalRef}`:''}
+        ${locked&&c.by?`<br>${c.by}`:''}</div>
+      ${!locked && !isClosed
+        ? `<button class="btn btn-primary btn-sm" onclick="postAndLockMonth(${fyYear},'${m}')" style="width:100%;">Post &amp; Lock ${m}</button>`
+        : locked
+        ? `<button class="btn btn-secondary btn-sm" onclick="unlockMonth(${fyYear},'${m}')" style="width:100%;color:var(--red);border-color:var(--red);">Unlock</button>`
+        : ''}
+    </div>`;
+  });
+  html += '</div>';
+  document.getElementById('dash-journals-body').innerHTML = html;
+}
+
+function renderAdditionsDisposals(fyYear, fyStart, fyEnd) {
+  const gidName = {};
+  (db.groups||[]).forEach(g => { gidName[g.id] = g.name; });
+  const allAssets = db.assets || [];
+
+  // Additions: acquired within this FY
+  const additions = allAssets.filter(a => {
+    if (!a.acquisitionDate) return false;
+    const acq = new Date(a.acquisitionDate);
+    return acq >= fyStart && acq <= fyEnd;
+  });
+
+  // Disposals: disposed within this FY
+  const disposals = allAssets.filter(a => {
+    if (!a.disposed || !a.disposalDate) return false;
+    const disp = new Date(a.disposalDate);
+    return disp >= fyStart && disp <= fyEnd;
+  });
+
+  document.getElementById('dash-additions-title').textContent =
+    `Additions & Disposals — FY ${fyYear}`;
+
+  if (!additions.length && !disposals.length) {
+    document.getElementById('dash-additions-table').innerHTML =
+      '<div style="padding:12px 14px;font-size:12px;color:var(--text3);">No additions or disposals in this year.</div>';
+    return;
+  }
+
+  let html = `<table class="tbl">
+    <thead><tr>
+      <th style="width:320px;">Asset</th>
+      <th>Group</th>
+      <th>Date</th>
+      <th class="r">Cost (R)</th>
+      <th class="r">Acc Depr (R)</th>
+      <th class="r">BV (R)</th>
+      <th>Type</th>
+    </tr></thead><tbody>`;
+
+  const addRow = (a, type) => {
+    const accum = getAccumDeprForFY(a, fyYear);
+    const bv    = Math.max(0, (a.cost||0) - accum);
+    const date  = type === 'Addition' ? a.acquisitionDate : a.disposalDate;
+    html += `<tr>
+      <td><div style="font-size:12px;font-weight:500;">${a.description}</div>
+          ${a.serialNo ? `<div style="font-size:10px;color:var(--text3);">${a.serialNo}</div>` : ''}</td>
+      <td style="font-size:11px;">${gidName[a.groupId]||'—'}</td>
+      <td style="font-size:11px;">${date||'—'}</td>
+      <td class="r mono">${fmt(a.cost)}</td>
+      <td class="r mono">(${fmt(accum)})</td>
+      <td class="r mono">${fmt(bv)}</td>
+      <td><span class="badge ${type==='Addition'?'badge-green':'badge-amber'}">${type}</span></td>
+    </tr>`;
+  };
+
+  additions.forEach(a => addRow(a, 'Addition'));
+  disposals.forEach(a => addRow(a, 'Disposal'));
+
+  // Totals
+  const addTotal  = additions.reduce((s,a) => s + (a.cost||0), 0);
+  const dispTotal = disposals.reduce((s,a) => s + (a.cost||0), 0);
+  html += `<tr class="grand-total">
+    <td colspan="3">Total</td>
+    <td class="r mono">${fmt(addTotal + dispTotal)}</td>
+    <td></td><td></td>
+    <td><span style="font-size:11px;color:var(--text3);">Additions: ${fmt(addTotal)} | Disposals: ${fmt(dispTotal)}</span></td>
+  </tr></tbody></table>`;
+
+  document.getElementById('dash-additions-table').innerHTML = html;
 }
 
 function renderMovementTable(fyYear, groupData, groups) {
+  // If groupData not provided, compute it
+  if (!groupData) {
+    const fyB2   = getFYBoundaries(fyYear);
+    const fyEnd2 = fyB2.fyEndDate;
+    const fyStart2 = fyB2.fyStartDate;
+    groupData = {};
+    (db.assets||[]).forEach(a => {
+      if (!a.groupId) return;
+      const acq = a.acquisitionDate ? new Date(a.acquisitionDate) : null;
+      if (acq && acq > fyEnd2) return;
+      if (a.disposed && a.disposalDate && new Date(a.disposalDate) < fyStart2) return;
+      if (!groupData[a.groupId]) groupData[a.groupId] = { assets: [] };
+      const accum  = getAccumDeprForFY(a, fyYear);
+      const bv     = getCarryingValue(a, fyYear);
+      const taxAcc = getTaxAccumDepr(a, fyYear);
+      const taxBV  = taxAcc !== null ? Math.max(0, (a.cost||0) - taxAcc) : null;
+      groupData[a.groupId].assets.push({ asset:a, accum, bv, taxAccum:taxAcc, taxBV });
+    });
+  }
   const fyBounds  = getFYBoundaries(fyYear);
   const fyStart   = fyBounds.fyStartDate;
   const fyEnd     = fyBounds.fyEndDate;
   const openLabel = fyBounds.fyStartLabel;
   const closeLabel= fyBounds.fyEndLabel;
 
-  // Section header helper
+  // Section header helper — now 5 columns per basis (added Disposals)
   const secHdr = (label) =>
-    `<th colspan="4" class="r" style="background:var(--surface2);font-size:10px;
+    `<th colspan="5" class="r" style="background:var(--surface2);font-size:10px;
       text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border2);
       padding:4px 10px;">${label}</th>`;
 
-  let html = `<table class="tbl movement-tbl" style="min-width:1100px;">
+  let html = `<table class="tbl movement-tbl" style="min-width:1200px;">
     <thead>
       <tr>
         <th rowspan="2" style="vertical-align:bottom;">Asset Class</th>
@@ -1327,89 +1849,110 @@ function renderMovementTable(fyYear, groupData, groups) {
       <tr>
         <th class="r">Opening CV<br><small>${openLabel}</small></th>
         <th class="r">Additions</th>
+        <th class="r">Disposals</th>
         <th class="r">Depreciation</th>
         <th class="r">Closing CV<br><small>${closeLabel}</small></th>
         <th class="r">Opening CV<br><small>${openLabel}</small></th>
         <th class="r">Additions</th>
+        <th class="r">Disposals</th>
         <th class="r">Depreciation</th>
         <th class="r">Closing CV<br><small>${closeLabel}</small></th>
       </tr>
     </thead><tbody>`;
 
-  let gAccOpen=0, gAccAdd=0, gAccDepr=0, gAccClose=0;
-  let gTaxOpen=0, gTaxAdd=0, gTaxDepr=0, gTaxClose=0;
+  let gAccOpen=0, gAccAdd=0, gAccDisp=0, gAccDepr=0, gAccClose=0;
+  let gTaxOpen=0, gTaxAdd=0, gTaxDisp=0, gTaxDepr=0, gTaxClose=0;
   let hasAnyTax = false;
 
   groups.forEach(g => {
     const gd = groupData[g.id];
     if (!gd || !gd.assets.length) return;
 
-    let accOpen=0, accAdd=0, accDepr=0, accClose=0;
-    let taxOpen=0, taxAdd=0, taxDepr=0, taxClose=0;
+    let accOpen=0, accAdd=0, accDisp=0, accDepr=0, accClose=0;
+    let taxOpen=0, taxAdd=0, taxDisp=0, taxDepr=0, taxClose=0;
     let grpHasTax = false;
 
     gd.assets.forEach(({asset, accum, bv, taxAccum, taxBV}) => {
       const prevAccum    = getAccumDeprForFY(asset, fyYear - 1);
       const prevTaxAccum = getTaxAccumDepr(asset, fyYear - 1);
-      const prevAccBV    = Math.max(1, (asset.cost||0) - prevAccum);
+      const prevAccBV    = Math.max(asset.residual||0, Math.max(1, (asset.cost||0) - prevAccum));
       const prevTaxBV    = prevTaxAccum !== null ? Math.max(1, (asset.cost||0) - prevTaxAccum) : null;
 
-      const fyAccDepr  = Math.max(0, accum - prevAccum);
-      // For new additions prevTaxAccum is null (asset didn't exist yet) — treat prior base as 0
-      const fyTaxDepr  = taxAccum !== null
-                           ? Math.max(0, taxAccum - (prevTaxAccum || 0))
-                           : null;
+      const fyAccDepr = Math.max(0, accum - prevAccum);
+      const fyTaxDepr = taxAccum !== null
+                          ? Math.max(0, taxAccum - (prevTaxAccum || 0))
+                          : null;
 
-      const acqDate = asset.acquisitionDate ? new Date(asset.acquisitionDate) : null;
+      const acqDate    = asset.acquisitionDate ? new Date(asset.acquisitionDate) : null;
       const isAddition = acqDate && acqDate >= fyStart && acqDate <= fyEnd;
+      const isDisposal = asset.disposed && asset.disposalDate &&
+                         new Date(asset.disposalDate) >= fyStart &&
+                         new Date(asset.disposalDate) <= fyEnd;
 
       if (isAddition) {
         accAdd += asset.cost || 0;
         taxAdd += asset.cost || 0;
+      } else if (isDisposal) {
+        // Disposal: opening BV goes into opening, disposal value = opening BV (removed)
+        accOpen += prevAccBV;
+        accDisp += prevAccBV;  // opening BV of disposed asset
+        if (prevTaxBV !== null) {
+          taxOpen += prevTaxBV;
+          taxDisp += prevTaxBV;
+        }
       } else {
         accOpen += prevAccBV;
         if (prevTaxBV !== null) taxOpen += prevTaxBV;
       }
 
-      accDepr  += fyAccDepr;
-      accClose += bv;
-
-      if (taxAccum !== null) {
-        grpHasTax = true;
-        hasAnyTax = true;
-        taxDepr  += fyTaxDepr || 0;
-        taxClose += taxBV || 0;
+      // Depreciation: only charge for non-disposal assets (disposal depreciation is reversed)
+      if (!isDisposal) {
+        accDepr  += fyAccDepr;
+        accClose += bv;
+        if (taxAccum !== null) {
+          grpHasTax = true;
+          hasAnyTax = true;
+          taxDepr  += fyTaxDepr || 0;
+          taxClose += taxBV || 0;
+        }
+      } else {
+        // Disposed asset: accClose = 0 (derecognised)
+        if (taxAccum !== null) { grpHasTax = true; hasAnyTax = true; }
       }
     });
 
     const taxCells = grpHasTax
       ? `<td class="r mono">${fmt(taxOpen)}</td>
          <td class="r mono">${taxAdd ? fmt(taxAdd) : '—'}</td>
-         <td class="r mono">(${fmt(taxDepr)})</td>
+         <td class="r mono">${taxDisp ? '('+fmt(taxDisp)+')' : '—'}</td>
+         <td class="r mono">${taxDepr ? '('+fmt(taxDepr)+')' : '(0,00)'}</td>
          <td class="r mono">${fmt(taxClose)}</td>`
-      : `<td class="r" colspan="4" style="color:var(--text3);font-style:italic;font-size:11px;">No tax depreciation</td>`;
+      : `<td class="r" colspan="5" style="color:var(--text3);font-style:italic;font-size:11px;">No tax depreciation</td>`;
 
     html += `<tr>
       <td>${g.name}</td>
       <td class="r mono">${fmt(accOpen)}</td>
       <td class="r mono">${accAdd ? fmt(accAdd) : '—'}</td>
-      <td class="r mono">(${fmt(accDepr)})</td>
+      <td class="r mono">${accDisp ? '('+fmt(accDisp)+')' : '—'}</td>
+      <td class="r mono">${accDepr ? '('+fmt(accDepr)+')' : '(0,00)'}</td>
       <td class="r mono">${fmt(accClose)}</td>
       ${taxCells}
     </tr>`;
 
-    gAccOpen+=accOpen; gAccAdd+=accAdd; gAccDepr+=accDepr; gAccClose+=accClose;
-    gTaxOpen+=taxOpen; gTaxAdd+=taxAdd; gTaxDepr+=taxDepr; gTaxClose+=taxClose;
+    gAccOpen+=accOpen; gAccAdd+=accAdd; gAccDisp+=accDisp; gAccDepr+=accDepr; gAccClose+=accClose;
+    gTaxOpen+=taxOpen; gTaxAdd+=taxAdd; gTaxDisp+=taxDisp; gTaxDepr+=taxDepr; gTaxClose+=taxClose;
   });
 
   html += `<tr class="grand-total">
     <td>Total</td>
     <td class="r mono">${fmt(gAccOpen)}</td>
     <td class="r mono">${gAccAdd ? fmt(gAccAdd) : '—'}</td>
+    <td class="r mono">${gAccDisp ? '('+fmt(gAccDisp)+')' : '—'}</td>
     <td class="r mono">(${fmt(gAccDepr)})</td>
     <td class="r mono">${fmt(gAccClose)}</td>
     <td class="r mono">${hasAnyTax ? fmt(gTaxOpen) : '—'}</td>
     <td class="r mono">${hasAnyTax && gTaxAdd ? fmt(gTaxAdd) : '—'}</td>
+    <td class="r mono">${hasAnyTax && gTaxDisp ? '('+fmt(gTaxDisp)+')' : '—'}</td>
     <td class="r mono">${hasAnyTax ? '('+fmt(gTaxDepr)+')' : '—'}</td>
     <td class="r mono">${hasAnyTax ? fmt(gTaxClose) : '—'}</td>
   </tr></tbody></table>`;
@@ -1420,70 +1963,214 @@ function renderMovementTable(fyYear, groupData, groups) {
 // ═══════════════════════════════════════════════════════
 // ASSETS
 // ═══════════════════════════════════════════════════════
+let _selectedAssetId = null;
+
 function renderAssets() {
   if (!db) return;
-  const search = document.getElementById('asset-search').value.toLowerCase();
+  const search      = (document.getElementById('asset-search').value || '').toLowerCase();
   const groupFilter = document.getElementById('asset-group-filter').value;
-  
-  // Populate group filter
-  const sel = document.getElementById('asset-group-filter');
-  const curVal = sel.value;
-  sel.innerHTML = '<option value="">All groups</option>' + 
-    (db.groups||[]).map(g=>`<option value="${g.id}"${g.id===curVal?' selected':''}>${g.name}</option>`).join('');
-  
+
   const assets = (db.assets||[]).filter(a => {
     if (groupFilter && a.groupId !== groupFilter) return false;
-    if (search && !a.description.toLowerCase().includes(search) && !(a.serialNo||'').toLowerCase().includes(search)) return false;
+    if (search && !a.description.toLowerCase().includes(search) &&
+        !(a.serialNo||'').toLowerCase().includes(search)) return false;
     return true;
   });
-  
-  let html = `<table class="tbl" style="min-width:1100px;">
-    <thead><tr>
-      <th>Description</th>
-      <th>Group</th>
-      <th>Acq. Date</th>
-      <th class="r">Cost</th>
-      <th class="r">Residual</th>
-      <th class="r">Period</th>
-      <th class="r">Rate</th>
-      <th>Tax Method</th>
-      <th>Status</th>
-      <th></th>
-    </tr></thead><tbody>`;
-  
-  if (!assets.length) {
-    html += `<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--text3);">
-      ${db.assets?.length ? 'No assets match filters.' : 'No assets. Click "+ Add Asset" to begin.'}</td></tr>`;
-  } else {
-    assets.forEach(a => {
-      const g = (db.groups||[]).find(g=>g.id===a.groupId);
-      const period = a.taxMethod === 's12c' ? '4yr (S12C)'
-                   : a.taxMethod === 's11e' ? `${a.s11ePeriod||3}yr`
-                   : '—';
+
+  // Left panel: grouped asset list
+  const gidName = {}; (db.groups||[]).forEach(g => { gidName[g.id] = g.name; });
+  const grouped = {};
+  assets.forEach(a => { if (!grouped[a.groupId]) grouped[a.groupId] = []; grouped[a.groupId].push(a); });
+
+  let listHtml = '';
+  (db.groups||[]).forEach(g => {
+    const gas = grouped[g.id];
+    if (!gas || !gas.length) return;
+    listHtml += `<div style="padding:6px 12px;font-size:10px;font-weight:700;text-transform:uppercase;
+      letter-spacing:.5px;color:var(--text3);background:var(--surface);border-bottom:1px solid var(--border);">
+      ${g.name} (${gas.length})</div>`;
+    gas.forEach(a => {
+      const sel = a.id === _selectedAssetId;
+      listHtml += `<div style="border-bottom:1px solid var(--border);
+        background:${sel?'var(--accent-light, #e8f0fe)':'var(--white)'};
+        border-left:3px solid ${sel?'var(--accent)':'transparent'};
+        display:flex;align-items:stretch;">
+        <div onclick="selectAsset('${a.id}')" style="flex:1;padding:8px 12px;cursor:pointer;min-width:0;">
+          <div style="font-size:12px;font-weight:${sel?'600':'400'};color:${sel?'var(--accent)':'var(--text)'};
+            white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            ${a.description.length>42?a.description.substring(0,42)+'…':a.description}</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px;">
+            ${a.acquisitionDate||'—'} &nbsp;|&nbsp; R ${fmt(a.cost)}
+            ${a.disposed?'&nbsp;<span style="color:var(--amber);">Disposed</span>':''}</div>
+        </div>
+        <button onclick="openAssetModal('${a.id}')" title="Edit asset"
+          style="border:none;background:none;padding:0 10px;cursor:pointer;color:var(--text3);
+                 font-size:11px;border-left:1px solid var(--border);flex-shrink:0;">✎</button>
+      </div>`;
+    });
+  });
+  if (!assets.length) listHtml = `<div style="padding:24px;text-align:center;color:var(--text3);font-size:12px;">
+    ${db.assets?.length ? 'No assets match filters.' : 'No assets yet.'}</div>`;
+
+  document.getElementById('assets-list-wrap').innerHTML = listHtml;
+
+  // Right panel
+  if (_selectedAssetId) renderAssetDetail(_selectedAssetId);
+}
+
+function selectAsset(id) {
+  _selectedAssetId = id;
+  renderAssets();
+}
+
+function renderAssetDetail(id) {
+  const a = (db.assets||[]).find(x => x.id === id);
+  if (!a) return;
+  const gidName = {}; (db.groups||[]).forEach(g => { gidName[g.id] = g.name; });
+  const fyYear  = db.client?.currentYear || new Date().getFullYear();
+  _clearCache();
+
+  // Asset summary
+  const residual = a.residual || 0;
+  const period   = a.s11ePeriod || 0;
+  const monthlyAmt = period > 0 ? (a.cost - residual) / (period * 12) : 0;
+
+  // Compute current accumulated depreciation from ledger
+  const _opening  = (db.openings||{})[a.id] || 0;
+  const _ledger   = (db.ledger||{})[a.id]   || {};
+  const _startFY2 = parseInt((db.meta||{}).firstLedgerFY || 2023);
+  let runAccumNow = _opening;
+  for (let _fy = _startFY2; _fy <= fyYear; _fy++) {
+    (_ledger[String(_fy)] || []).forEach(v => { runAccumNow += (v||0); });
+  }
+  runAccumNow = Math.round(runAccumNow * 100) / 100;
+  const resLabel = residual > 1 ? (Math.round(residual/(a.cost||1)*100)+'%') : 'R1';
+
+  let html = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:14px 0 8px;">
+      <div>
+        <div style="font-size:14px;font-weight:700;">${a.description}</div>
+        ${a.serialNo?`<div style="font-size:11px;color:var(--text3);">S/N: ${a.serialNo}</div>`:''}
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-secondary btn-sm" onclick="openAssetModal('${a.id}')">Edit Asset</button>
+        <button class="btn btn-ghost btn-sm" onclick="showTab('dashboard');setTimeout(()=>document.querySelector(\'[data-id=\"${a.id}\"]\')?document.querySelector(\'[data-id=\"${a.id}\"]\').scrollIntoView({block:\'center\'}):null,200)" title="Jump to this asset on dashboard">→ Dashboard</button>
+      </div>
+    </div>
+    <div class="grid-4" style="margin-bottom:12px;">
+      <div class="stat-card" style="padding:8px 12px;">
+        <div class="stat-label">Cost</div>
+        <div class="stat-value" style="font-size:16px;">R ${fmt(a.cost)}</div></div>
+      <div class="stat-card" style="padding:8px 12px;">
+        <div class="stat-label">Acc Depr to Date</div>
+        <div class="stat-value" style="font-size:16px;color:var(--accent);">(R ${fmt(runAccumNow)})</div>
+        <div class="stat-sub">BV: R ${fmt(Math.max(residual||0,a.cost-runAccumNow))}</div></div>
+      <div class="stat-card" style="padding:8px 12px;">
+        <div class="stat-label">Residual (${resLabel})</div>
+        <div class="stat-value" style="font-size:16px;">R ${fmt(residual)}</div>
+        <div class="stat-sub">Depreciable: R ${fmt(a.cost-residual)}</div></div>
+      <div class="stat-card" style="padding:8px 12px;">
+        <div class="stat-label">Monthly Depr</div>
+        <div class="stat-value" style="font-size:16px;">R ${fmt(monthlyAmt)}</div>
+        <div class="stat-sub">${period?period+'yr · ':''}${a.accRate||0}%/yr</div></div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">
+      Group: ${gidName[a.groupId]||'—'} &nbsp;|&nbsp;
+      Acquired: ${a.acquisitionDate||'—'} &nbsp;|&nbsp;
+      Method: ${a.taxMethod||'—'} &nbsp;|&nbsp;
+      ${a.disposed?`<span style="color:var(--amber);">Disposed ${a.disposalDate||''}</span>`:'<span style="color:var(--green);">Active</span>'}
+    </div>
+
+    <div style="font-size:12px;font-weight:600;margin:12px 0 6px;">Transaction Ledger</div>
+    <table class="tbl" style="font-size:11px;">
+      <thead><tr>
+        <th>Date</th><th>Description</th>
+        <th class="r">Amount (R)</th>
+        <th class="r">Acc Depr (R)</th>
+        <th class="r">BV (R)</th>
+      </tr></thead><tbody>`;
+
+  // Build ledger from stored data
+  const opening  = (db.openings||{})[a.id] || 0;
+  const ledger   = (db.ledger||{})[a.id]   || {};
+  const FY_MO    = ['Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb'];
+  let runAccum   = 0;
+  const floor    = Math.max(residual, 1);
+
+  // Opening balance row (28/02/2022)
+  if (opening > 0) {
+    html += `<tr>
+      <td>2022-02-28</td>
+      <td style="color:var(--text2);">Opening accumulated depreciation</td>
+      <td class="r mono" style="color:var(--text3);">(${fmt(opening)})</td>
+      <td class="r mono">(${fmt(opening)})</td>
+      <td class="r mono">${fmt(Math.max(floor, a.cost - opening))}</td>
+    </tr>`;
+    runAccum = opening;
+  }
+
+  // Opening cost row
+  html += `<tr style="background:var(--green-light);">
+    <td>${a.acquisitionDate||'—'}</td>
+    <td style="font-weight:600;">Capitalisation</td>
+    <td class="r mono" style="font-weight:600;">${fmt(a.cost)}</td>
+    <td class="r mono">(${fmt(runAccum)})</td>
+    <td class="r mono" style="font-weight:600;">${fmt(Math.max(floor, a.cost - runAccum))}</td>
+  </tr>`;
+
+  // FY entries from ledger
+  const startFY = parseInt((db.meta||{}).firstLedgerFY || 2023);
+  for (let fy = startFY; fy <= fyYear; fy++) {
+    const months = ledger[String(fy)] || [];
+    if (!months.some(v => v)) continue;
+    const fyB = getFYBoundaries(fy);
+    FY_MO.forEach((m, i) => {
+      const amt = months[i] || 0;
+      if (!amt) return;
+      const calYr  = fyB.calYearOf(m);
+      const mo     = {Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12}[m];
+      const lastDay = new Date(calYr, mo, 0).getDate();
+      const dateStr = `${calYr}-${String(mo).padStart(2,'0')}-${lastDay}`;
+      const isNeg   = amt < 0;
+      runAccum     += amt;
+      const bv      = Math.max(floor, a.cost - runAccum);
       html += `<tr>
-        <td>
-          <div style="font-weight:500">${a.description}</div>
-          ${a.serialNo ? `<div style="font-size:10px;color:var(--text3)">${a.serialNo}</div>` : ''}
-          ${a.notes ? `<div style="font-size:10px;color:var(--text3);font-style:italic">${a.notes.substring(0,60)}${a.notes.length>60?'…':''}</div>` : ''}
+        <td style="color:var(--text2);">${dateStr}</td>
+        <td style="color:var(--text2);">Depreciation — ${m} ${fy}</td>
+        <td class="r mono" style="color:${isNeg?'var(--green)':'var(--text3)'};">${isNeg?'+ ':'('}${fmt(Math.abs(amt))}${isNeg?'':')'}
         </td>
-        <td style="white-space:nowrap">${g?.name||a.groupId||'—'}</td>
-        <td style="white-space:nowrap">${a.acquisitionDate||'—'}</td>
-        <td class="r mono">${fmt(a.cost)}</td>
-        <td class="r mono">${a.taxMethod==='nodep' ? '<span style="color:var(--text3)">—</span>' : (a.residual||0) <= 1 ? '<span style="color:var(--text3)">R1</span>' : fmt(a.residual)}</td>
-        <td class="r">${a.taxMethod==='nodep' ? '<span style="color:var(--text3)">—</span>' : a.taxMethod==='s12c' ? '4yr (S12C)' : a.s11ePeriod ? `${a.s11ePeriod}yr` : '—'}</td>
-        <td class="r" style="font-size:10px;color:var(--text3);">${a.taxMethod==='nodep' ? '—' : a.accRate ? (Math.round(a.accRate*100)/100)+'%' : '—'}</td>
-        <td><span class="badge ${a.taxMethod==='nodep'?'badge-blue':a.taxMethod==='s12c'?'badge-green':'badge-gray'}">${a.taxMethod==='nodep'?'No Depr':a.taxMethod==='s12c'?'S12C':a.taxMethod==='s11e'?'S11(e)':a.taxMethod==='none'?'Tax: None':'None'}</span></td>
-        <td>${a.disposed ? '<span class="badge badge-amber">Disposed</span>' : '<span class="badge badge-green">Active</span>'}</td>
-        <td style="white-space:nowrap">
-          <button class="btn btn-ghost btn-sm" onclick="openAssetModal('${a.id}')">Edit</button>
-          <button class="btn btn-ghost btn-sm" onclick="copyAsset('${a.id}')" title="Copy asset">⧉</button>
-        </td>
+        <td class="r mono">(${fmt(runAccum)})</td>
+        <td class="r mono">${fmt(bv)}</td>
       </tr>`;
     });
   }
-  
-  html += '</tbody></table>';
-  document.getElementById('assets-table-wrap').innerHTML = html;
+
+  // Formula-based entries for current open year (2026) if not in ledger
+  if (!ledger[String(fyYear)] || !ledger[String(fyYear)].some(v=>v)) {
+    const computed = getMonthlyAmounts(a, fyYear);
+    const fyB      = getFYBoundaries(fyYear);
+    FY_MO.forEach((m, i) => {
+      const amt = computed[i] || 0;
+      if (!amt) return;
+      const calYr  = fyB.calYearOf(m);
+      const mo     = {Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12}[m];
+      const lastDay = new Date(calYr, mo, 0).getDate();
+      const dateStr = `${calYr}-${String(mo).padStart(2,'0')}-${lastDay}`;
+      const projAccum = runAccum + amt;
+      const projBV    = Math.max(floor, a.cost - projAccum);
+      html += `<tr style="color:var(--text3);font-style:italic;">
+        <td>${dateStr}</td>
+        <td>Depreciation — ${m} ${fyYear} <span style="font-size:9px;">(formula)</span></td>
+        <td class="r mono">(${fmt(amt)})</td>
+        <td class="r mono">(${fmt(projAccum)})</td>
+        <td class="r mono">${fmt(projBV)}</td>
+      </tr>`;
+      runAccum = projAccum;
+    });
+  }
+
+  html += `</tbody></table>`;
+  document.getElementById('asset-detail-wrap').innerHTML = html;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1494,142 +2181,401 @@ function renderMonthly() {
   _clearCache();
   const fyYear = parseInt(document.getElementById('monthly-year').value);
   const groupFilter = document.getElementById('monthly-group').value;
-  
+
   // Populate group select
   const sel = document.getElementById('monthly-group');
   const curVal = sel.value;
-  sel.innerHTML = '<option value="">All groups</option>' + 
+  sel.innerHTML = '<option value="">All groups</option>' +
     (db.groups||[]).map(g=>`<option value="${g.id}"${g.id===curVal?' selected':''}>${g.name}</option>`).join('');
-  
+
   const assets = (db.assets||[]).filter(a => !a.disposed && (!groupFilter || a.groupId === groupFilter));
-  
+
   const fyBoundsM = getFYBoundaries(fyYear);
   const monthsM   = fyBoundsM.months;
-  document.getElementById('monthly-card-title').textContent = 
+  document.getElementById('monthly-card-title').textContent =
     `Monthly Depreciation — FY ${fyYear} (${monthsM[0]} ${fyBoundsM.calYearOf(monthsM[0])} – ${monthsM[11]} ${fyYear})`;
-  
-  // Build table
-  let html = `<table class="tbl" style="min-width:1200px;">
+
+  // Initialise group collapse state
+  if (!window.moGroupExpanded) window.moGroupExpanded = {};
+
+  // Columns: Asset | Cost | Acc Depr | Mar | Apr | … | Feb | FY Total | BV
+  const colCount = 3 + 12 + 2; // asset + cost + accum + 12 months + total + BV
+
+  let html = `<table class="tbl" style="min-width:1400px;">
     <thead><tr>
-      <th style="width:280px;position:sticky;left:0;background:var(--surface);z-index:2;">Asset</th>
-      ${monthsM.map(m=>`<th class="r" style="min-width:90px;">${m}<br><small style="font-weight:400;color:var(--text3)">${fyBoundsM.calYearOf(m)}</small></th>`).join('')}
-      <th class="r" style="min-width:100px;">FY Total</th>
+      <th class="sticky-left" style="width:260px;min-width:260px;">Asset</th>
+      <th class="r" style="min-width:100px;">Cost</th>
+      <th class="r" style="min-width:100px;">Acc Depr</th>
+      ${monthsM.map(m=>`<th class="r" style="min-width:80px;">${m}<br><small style="font-weight:400;color:var(--text3)">${fyBoundsM.calYearOf(m)}</small></th>`).join('')}
+      <th class="r" style="min-width:90px;font-weight:700;">FY Total</th>
+      <th class="r" style="min-width:100px;">BV</th>
     </tr></thead><tbody>`;
-  
-  const monthTotals = {};
-  monthsM.forEach(m => { monthTotals[m] = 0; });
-  let grandTotal = 0;
-  
-  // Group by group
-  const groups = db.groups || [];
+
+  const monthTotals = {}; monthsM.forEach(m => { monthTotals[m] = 0; });
+  let grandTotal = 0, grandCost = 0, grandAccum = 0, grandBV = 0;
+
+  const groups  = db.groups || [];
   const grouped = {};
   assets.forEach(a => {
     if (!grouped[a.groupId]) grouped[a.groupId] = [];
     grouped[a.groupId].push(a);
   });
-  
+
   groups.forEach(g => {
     const gassets = grouped[g.id];
     if (!gassets || !gassets.length) return;
-    
-    html += `<tr class="group-header"><td colspan="${14}" style="position:sticky;left:0;">${g.name}</td></tr>`;
-    
-    let grpTotals = {};
-    monthsM.forEach(m => { grpTotals[m] = 0; });
-    let grpTotal = 0;
-    
+
+    if (window.moGroupExpanded[g.id] === undefined) window.moGroupExpanded[g.id] = true;
+    const expanded = window.moGroupExpanded[g.id];
+    const arrow    = expanded ? '▾' : '▸';
+
+    let grpTotals = {}; monthsM.forEach(m => { grpTotals[m] = 0; });
+    let grpTotal = 0, grpCost = 0, grpAccum = 0;
+
+    // Pre-compute group totals
     gassets.forEach(a => {
+      const amounts = getMonthlyAmounts(a, fyYear);
+      const accum   = getAccumDeprForFY(a, fyYear - 1); // opening accum = prior year close
+      grpCost  += a.cost || 0;
+      grpAccum += accum;
+      monthsM.forEach((m, i) => {
+        const amt = amounts[i] || 0;
+        grpTotals[m] += amt;
+        grpTotal     += amt;
+      });
+    });
+    const grpBV = grpCost - grpAccum - grpTotal;
+
+    // Group header row — clickable to collapse
+    html += `<tr class="group-header" onclick="toggleMoGroup('${g.id}')">
+      <td class="sticky-left" colspan="3">
+        <span class="group-toggle" id="mgt-${g.id}">${arrow}</span><strong>${g.name}</strong>
+        <span style="font-size:10px;color:var(--text3);font-weight:400;margin-left:6px;">${gassets.length} assets</span>
+      </td>
+      ${monthsM.map(m=>`<td class="r mono" style="font-size:11px;">${grpTotals[m] ? fmt(grpTotals[m]) : '—'}</td>`).join('')}
+      <td class="r mono" style="font-weight:700;">${fmt(grpTotal)}</td>
+      <td class="r mono" style="font-size:11px;">${fmt(Math.max(0,grpBV))}</td>
+    </tr>`;
+
+    gassets.forEach(a => {
+      const amounts = getMonthlyAmounts(a, fyYear);
+      const openAccum = getAccumDeprForFY(a, fyYear - 1);
+      const cost = a.cost || 0;
       let fyTotal = 0;
-      let cells = monthsM.map(m => {
+
+      const cells = monthsM.map((m, i) => {
         const eff = getEffectiveMonthly(a, fyYear, m);
         const amt = eff.amount || 0;
         monthTotals[m] += amt;
-        grpTotals[m] += amt;
-        fyTotal += amt;
-        grpTotal += amt;
-        grandTotal += amt;
-        
+        fyTotal        += amt;
+        grandTotal     += amt;
         const cls = eff.isOverride ? 'has-override' : (amt === 0 ? 'zero' : '');
-        const indicator = eff.isOverride ? `<span class="override-dot" title="Override${eff.note?': '+eff.note:''}"></span>` : '';
-        const displayAmt = amt === 0 ? '—' : fmt(amt);
-        
-        return `<td class="r month-cell" onclick="openOverrideModal('${a.id}',${fyYear},'${m}')" 
-                   style="cursor:pointer;" title="Click to edit override">
-          <span class="month-val ${cls}">${indicator}${displayAmt}</span>
+        const dot = eff.isOverride ? `<span class="override-dot" title="Override${eff.note?': '+eff.note:''}"></span>` : '';
+        return `<td class="r month-cell" onclick="openOverrideModal('${a.id}',${fyYear},'${m}')"
+                   style="cursor:pointer;" title="Click to override">
+          <span class="month-val ${cls}">${dot}${amt===0?'—':fmt(amt)}</span>
         </td>`;
       }).join('');
-      
-      html += `<tr>
-        <td style="position:sticky;left:0;background:var(--white);z-index:1;">
-          <div style="font-size:12px;">${a.description.length > 50 ? a.description.substring(0,50)+'…' : a.description}</div>
+
+      const closingAccum = openAccum + fyTotal;
+      const bv           = Math.max(1, cost - closingAccum);
+      grandCost  += cost;
+      grandAccum += openAccum;
+      grandBV    += bv;
+
+      html += `<tr class="mo-asset-row${expanded?'':' mo-hidden'}" data-mogrp="${g.id}">
+        <td class="sticky-left" style="background:var(--white);">
+          <div style="font-size:11px;padding-left:20px;">${a.description.length>55?a.description.substring(0,55)+'…':a.description}</div>
         </td>
+        <td class="r mono" style="font-size:11px;">${fmt(cost)}</td>
+        <td class="r mono" style="font-size:11px;">(${fmt(openAccum)})</td>
         ${cells}
-        <td class="r mono" style="font-weight:600;">${fyTotal ? fmt(fyTotal) : '—'}</td>
+        <td class="r mono" style="font-weight:600;">${fyTotal?fmt(fyTotal):'—'}</td>
+        <td class="r mono" style="font-size:11px;">${fmt(bv)}</td>
       </tr>`;
     });
-    
-    // Group total
-    html += `<tr class="subtotal">
-      <td style="position:sticky;left:0;background:var(--surface);">Total — ${g.name}</td>
-      ${monthsM.map(m=>`<td class="r mono">${grpTotals[m] ? fmt(grpTotals[m]) : '—'}</td>`).join('')}
-      <td class="r mono">${fmt(grpTotal)}</td>
-    </tr>`;
+
+    grandCost  += grpCost; // already added per asset above — skip double count
+    // (reset since we accumulated per asset already)
   });
-  
+
   // Grand total
   html += `<tr class="grand-total">
-    <td style="position:sticky;left:0;background:#f0f0ec;">Grand Total</td>
-    ${monthsM.map(m=>`<td class="r mono">${monthTotals[m] ? fmt(monthTotals[m]) : '—'}</td>`).join('')}
+    <td class="sticky-left" style="background:#f0f0ec;">Grand Total</td>
+    <td class="r mono">${fmt(grandCost)}</td>
+    <td class="r mono">(${fmt(grandAccum)})</td>
+    ${monthsM.map(m=>`<td class="r mono">${monthTotals[m]?fmt(monthTotals[m]):'—'}</td>`).join('')}
     <td class="r mono">${fmt(grandTotal)}</td>
+    <td class="r mono">${fmt(grandBV)}</td>
   </tr></tbody></table>`;
-  
-  document.getElementById('monthly-table-wrap').innerHTML = html;
-  
-  // Monthly totals summary
-  document.getElementById('monthly-totals-row').textContent = `FY Total: R ${fmt(grandTotal)}`;
-  
-  // Confirmation
+
+  document.getElementById('monthly-table-wrap').innerHTML =
+    `<div class="frozen-wrap">${html}</div>`;
+
+  document.getElementById('monthly-totals-row').textContent =
+    `FY Total: R ${fmt(grandTotal)}`;
+
   renderMonthlyConfirmations(fyYear);
 }
 
+function toggleMoGroup(groupId) {
+  window.moGroupExpanded[groupId] = !window.moGroupExpanded[groupId];
+  const expanded = window.moGroupExpanded[groupId];
+  document.getElementById('mgt-' + groupId).textContent = expanded ? '▾' : '▸';
+  document.querySelectorAll(`tr.mo-asset-row[data-mogrp="${groupId}"]`).forEach(r => {
+    r.classList.toggle('mo-hidden', !expanded);
+  });
+}
+
 function renderMonthlyConfirmations(fyYear) {
-  const confs = (db.monthlyConfirmations || {})[String(fyYear)] || {};
+  const confs    = (db.monthlyConfirmations || {})[String(fyYear)] || {};
+  const closed   = (db.closedYears || []).includes(fyYear);
   const fyBoundsC = getFYBoundaries(fyYear);
+  const currentYear = db.client?.currentYear || new Date().getFullYear();
+
+  // Show/hide year close controls
+  const badge   = document.getElementById('year-closed-badge');
+  const btnClose  = document.getElementById('btn-close-year');
+  const btnReopen = document.getElementById('btn-reopen-year');
+  if (badge)    badge.style.display    = closed ? '' : 'none';
+  if (btnClose)  btnClose.style.display  = (!closed && fyYear < currentYear) ? '' : 'none';
+  if (btnReopen) btnReopen.style.display = closed ? '' : 'none';
+
   let html = '<div style="display:flex;flex-wrap:wrap;gap:8px;">';
   fyBoundsC.months.forEach(m => {
-    const c = confs[m] || {};
-    const isConfirmed = c.confirmed === true;
-    const calYr = fyBoundsC.calYearOf(m);
-    html += `<div style="min-width:180px;padding:8px;border:1px solid var(--border);border-radius:4px;background:${isConfirmed?'var(--green-light)':'var(--white)'}">
+    const c   = confs[m] || {};
+    const locked   = c.locked === true;
+    const calYr    = fyBoundsC.calYearOf(m);
+    const yearLocked = closed;
+
+    // Compute month total for display
+    const assets = db.assets || [];
+    let monthTotal = 0;
+    assets.forEach(a => {
+      const amounts = getMonthlyAmounts(a, fyYear);
+      const idx = FY_MONTHS.indexOf(m);
+      monthTotal += idx >= 0 ? (amounts[idx] || 0) : 0;
+    });
+
+    const statusColor  = locked ? 'var(--green-light)' : 'var(--white)';
+    const badgeClass   = locked ? 'badge-green' : 'badge-gray';
+    const statusLabel  = locked ? 'Posted & Locked' : (yearLocked ? 'Year Closed' : 'Draft');
+
+    html += `<div style="min-width:200px;padding:10px;border:1px solid var(--border);border-radius:4px;background:${statusColor}">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
         <strong style="font-size:12px;">${m} ${calYr}</strong>
-        <span class="badge ${isConfirmed?'badge-green':'badge-gray'}">${isConfirmed?'Confirmed':'Pending'}</span>
+        <span class="badge ${badgeClass}">${statusLabel}</span>
       </div>
-      ${isConfirmed ? `<div style="font-size:10px;color:var(--text3)">${c.by||''} ${c.journalRef?'· '+c.journalRef:''}</div>` : ''}
-      <button class="btn btn-sm ${isConfirmed?'btn-secondary':'btn-primary'}" 
-        onclick="toggleConfirm(${fyYear},'${m}')" style="margin-top:6px;width:100%;">
-        ${isConfirmed ? 'Unconfirm' : 'Confirm'}
-      </button>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">
+        Depreciation: R ${fmt(monthTotal)}
+        ${locked && c.journalRef ? `<br>Ref: ${c.journalRef}` : ''}
+        ${locked && c.by ? `<br>By: ${c.by} ${c.date ? '· '+c.date.substring(0,10) : ''}` : ''}
+      </div>
+      ${!locked && !yearLocked
+        ? `<button class="btn btn-primary btn-sm" onclick="postAndLockMonth(${fyYear},'${m}')" style="width:100%;">
+             Post &amp; Lock ${m}
+           </button>`
+        : locked
+        ? `<button class="btn btn-secondary btn-sm" onclick="unlockMonth(${fyYear},'${m}')" style="width:100%;color:var(--red);border-color:var(--red);">
+             Unlock
+           </button>`
+        : `<div style="font-size:10px;color:var(--text3);text-align:center;">Close year first</div>`
+      }
     </div>`;
   });
   html += '</div>';
   document.getElementById('monthly-confirm-body').innerHTML = html;
 }
 
-function toggleConfirm(fyYear, month) {
+/** Post & Lock a month — shows preview modal before committing */
+function postAndLockMonth(fyYear, month) {
+  if (!db) return;
+  const fyBoundsP = getFYBoundaries(fyYear);
+  const calYr     = fyBoundsP.calYearOf(month);
+  const idx       = FY_MONTHS.indexOf(month);
+  if (idx < 0) return;
+
+  // Build lines — all assets with non-zero depreciation for this month
+  const lines = [];
+  (db.assets || []).forEach(a => {
+    const amounts = getMonthlyAmounts(a, fyYear);
+    const amt = amounts[idx] || 0;
+    if (amt > 0) {
+      lines.push({ id: a.id, description: a.description, groupId: a.groupId, amount: amt });
+    }
+  });
+
+  // Build editable table — each amount is an inline input
+  function buildTableHtml() {
+    const total = lines.reduce((s,l) => s + (parseFloat(l.amount)||0), 0);
+    let t = `<table class="journal-tbl" style="width:100%;">
+      <thead><tr>
+        <th style="text-align:left;padding:4px 6px;">Asset</th>
+        <th style="text-align:right;padding:4px 6px;width:140px;">Depreciation (R)</th>
+      </tr></thead><tbody>`;
+    lines.forEach((l, i) => {
+      t += `<tr>
+        <td style="padding:3px 6px;font-size:11px;">${l.description.length>65?l.description.substring(0,64)+'…':l.description}</td>
+        <td style="padding:3px 6px;text-align:right;">
+          <input type="number" step="0.01" min="0" value="${l.amount.toFixed(2)}"
+            style="width:120px;text-align:right;font-family:monospace;font-size:11px;padding:2px 4px;"
+            oninput="window._journalModalState.lines[${i}].amount=parseFloat(this.value)||0;_updateJournalTotal()">
+        </td></tr>`;
+    });
+    t += `<tr style="font-weight:700;border-top:2px solid var(--border);">
+      <td style="padding:4px 6px;">TOTAL</td>
+      <td style="padding:4px 6px;text-align:right;font-family:monospace;" id="jnl-total">${fmt(total)}</td>
+    </tr></tbody></table>`;
+    return t;
+  }
+
+  const modalBg = document.getElementById('override-modal');
+  if (!modalBg) { alert('Modal not available'); return; }
+  document.getElementById('override-modal-title').textContent =
+    `Journal Preview — Depreciation ${month} ${calYr}`;
+  const modalBody   = modalBg.querySelector('.modal-body');
+  const modalFooter = modalBg.querySelector('.modal-footer');
+  const savedBody   = modalBody.innerHTML;
+  const savedFooter = modalFooter.innerHTML;
+
+  modalBody.innerHTML = `
+    <div style="font-size:11px;color:var(--text2);margin-bottom:8px;">
+      Click any amount to edit it for this month only. Formula continues unchanged next month.
+    </div>
+    <div style="max-height:360px;overflow-y:auto;">${buildTableHtml()}</div>
+    <div style="margin-top:10px;">
+      <label style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.3px;color:var(--text2);">
+        Journal Reference</label>
+      <input id="jnl-ref-input" type="text" placeholder="e.g. JNL-2026-03" style="margin-top:4px;">
+    </div>`;
+
+  modalFooter.innerHTML = `
+    <button class="btn btn-secondary" onclick="_cancelJournalModal()">Cancel</button>
+    <button class="btn btn-secondary" onclick="_downloadDeprJournalCSV(${fyYear},'${month}',document.getElementById('jnl-ref-input')?.value||'')">⬇ Download CSV</button>
+    <button class="btn btn-primary" onclick="_confirmPostAndLock(${fyYear},'${month}',${idx})">🔒 Post &amp; Lock ${month}</button>`;
+
+  modalBg.classList.add('open');
+  window._journalModalState = { fyYear, month, idx, lines, savedBody, savedFooter };
+}
+
+function _updateJournalTotal() {
+  const total = (window._journalModalState?.lines||[]).reduce((s,l)=>s+(parseFloat(l.amount)||0),0);
+  const el = document.getElementById('jnl-total');
+  if (el) el.textContent = fmt(total);
+}
+
+function _cancelJournalModal() {
+  const { savedBody, savedFooter } = window._journalModalState || {};
+  const modalBg = document.getElementById('override-modal');
+  if (savedBody)   modalBg.querySelector('.modal-body').innerHTML   = savedBody;
+  if (savedFooter) modalBg.querySelector('.modal-footer').innerHTML = savedFooter;
+  modalBg.classList.remove('open');
+}
+
+function _exportJournalCSV(fyYear, month, idx) {
+  const { lines } = window._journalModalState || {};
+  if (!lines) return;
+  const fyBoundsE = getFYBoundaries(fyYear);
+  const calYrE    = fyBoundsE.calYearOf(month);
+  const ref       = document.getElementById('jnl-ref-input')?.value || '';
+  const total     = lines.reduce((s,l) => s + l.amount, 0);
+
+  // CSV header + rows
+  let csv = 'Reference,Date,Description,Debit,Credit\n';
+  const date = `${month} ${calYrE}`;
+  lines.forEach(l => {
+    csv += `"${ref}","${date}","Depreciation - ${l.description.replace(/"/g,'""')}","","${l.amount.toFixed(2)}"\n`;
+  });
+  csv += `"${ref}","${date}","Depreciation Expense — ${month} ${fyYear}","${total.toFixed(2)}",""\n`;
+
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = `Depreciation_${month}_${fyYear}${ref?'_'+ref:''}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast(`✓ CSV downloaded`, 'green');
+}
+
+function _confirmPostAndLock(fyYear, month, idx) {
+  const { lines, savedBody, savedFooter } = window._journalModalState || {};
+  const ref = document.getElementById('jnl-ref-input')?.value || '';
+
+  // Restore modal
+  _cancelJournalModal();
+
+  // Write edited amounts to ledger — use lines from modal state (may have been edited)
+  if (!db.ledger) db.ledger = {};
+  const editedAmounts = {};
+  (lines || []).forEach(l => { editedAmounts[l.id] = parseFloat(l.amount) || 0; });
+  (db.assets || []).forEach(a => {
+    // Use edited amount if present, otherwise formula amount
+    const amt = editedAmounts[a.id] !== undefined
+      ? editedAmounts[a.id]
+      : (getMonthlyAmounts(a, fyYear)[idx] || 0);
+    if (!db.ledger[a.id]) db.ledger[a.id] = {};
+    if (!db.ledger[a.id][String(fyYear)]) db.ledger[a.id][String(fyYear)] = new Array(12).fill(0);
+    db.ledger[a.id][String(fyYear)][idx] = amt;
+  });
+  // Lock month
   if (!db.monthlyConfirmations) db.monthlyConfirmations = {};
   if (!db.monthlyConfirmations[String(fyYear)]) db.monthlyConfirmations[String(fyYear)] = {};
-  const cur = db.monthlyConfirmations[String(fyYear)][month] || {};
-  if (cur.confirmed) {
-    db.monthlyConfirmations[String(fyYear)][month] = { confirmed: false };
-  } else {
-    const ref = prompt('Journal reference (optional):','');
-    db.monthlyConfirmations[String(fyYear)][month] = {
-      confirmed: true, by: db.client?.preparedBy || 'User',
-      journalRef: ref || '', date: new Date().toISOString()
-    };
-  }
+  db.monthlyConfirmations[String(fyYear)][month] = {
+    locked: true, by: db.client?.preparedBy || 'User',
+    journalRef: ref, date: new Date().toISOString()
+  };
+
+  _clearCache();
+  _markDirty();
+  showToast(`✓ ${month} ${fyYear} posted and locked`, 'green');
+  renderDashboard();
   renderMonthlyConfirmations(fyYear);
+  renderDashboard();
+}
+
+/** Unlock a posted month — removes ledger entries for that month index */
+function unlockMonth(fyYear, month) {
+  if (!confirm(`Unlock ${month} ${fyYear}? This will allow recalculation of this month.`)) return;
+  const idx = FY_MONTHS.indexOf(month);
+  if (idx < 0) return;
+
+  // Remove the stored month value from each asset's ledger
+  const assets = db.assets || [];
+  assets.forEach(a => {
+    const yr = (db.ledger || {})[a.id]?.[String(fyYear)];
+    if (yr) yr[idx] = 0; // reset to 0 so formula takes over
+  });
+
+  // Remove lock from confirmations
+  if (db.monthlyConfirmations?.[String(fyYear)]?.[month]) {
+    db.monthlyConfirmations[String(fyYear)][month] = { locked: false };
+  }
+
+  _clearCache();
+  _markDirty();
+  showToast(`${month} ${fyYear} unlocked`, '');
+  renderMonthlyConfirmations(fyYear);
+  renderDashboard();
+}
+
+/** Close a financial year — locks it entirely; no further posting allowed */
+function closeYear() {
+  const fyYear = parseInt(document.getElementById('monthly-year').value);
+  if (!confirm(`Close FY${fyYear}? This locks the year. Individual months can still be unlocked if needed.`)) return;
+  if (!db.closedYears) db.closedYears = [];
+  if (!db.closedYears.includes(fyYear)) db.closedYears.push(fyYear);
+  showToast(`FY${fyYear} closed`, 'green');
+  renderMonthly();
+  renderDashboard();
+}
+
+/** Reopen a closed year */
+function reopenYear() {
+  const fyYear = parseInt(document.getElementById('monthly-year').value);
+  if (!confirm(`Reopen FY${fyYear}? Closed months will remain locked individually.`)) return;
+  db.closedYears = (db.closedYears || []).filter(y => y !== fyYear);
+  showToast(`FY${fyYear} reopened`, '');
+  renderMonthly();
 }
 
 function clearAllOverrides() {
@@ -1788,8 +2734,8 @@ function saveOverride() {
   closeModal('override-modal');
   // Refresh whichever tab is active
   const activeTab = document.querySelector('.tab-panel.active')?.id;
-  if (activeTab === 'tab-monthly') renderMonthly();
-  if (activeTab === 'tab-history') renderHistory();
+  
+  
   if (activeTab === 'tab-dashboard') renderDashboard();
 }
 
@@ -1799,8 +2745,8 @@ function clearOverride() {
   setOverride(assetId, fyYear, month, null, '');
   closeModal('override-modal');
   const activeTab = document.querySelector('.tab-panel.active')?.id;
-  if (activeTab === 'tab-monthly') renderMonthly();
-  if (activeTab === 'tab-history') renderHistory();
+  
+  
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1838,6 +2784,9 @@ function openAssetModal(id) {
   }
   document.getElementById('m-s11e').value = loadPeriod;
   document.getElementById('m-disposed').value = a?.disposed ? 'true' : 'false';
+  // Show disposal journal button if asset is already disposed
+  const djBtn = document.getElementById('m-disposal-journal-btn');
+  if (djBtn) djBtn.style.display = (a?.disposed) ? '' : 'none';
   document.getElementById('m-disp-date').value = a?.disposalDate || '';
   document.getElementById('m-disp-proc').value = a?.disposalProceeds || '';
   document.getElementById('m-disp-reason').value = a?.disposalReason || '';
@@ -1925,8 +2874,11 @@ function toggleTaxMethod() {
 }
 
 function toggleDisposal() {
-  document.getElementById('m-disposal-wrap').style.display = 
-    document.getElementById('m-disposed').value === 'true' ? '' : 'none';
+  const isDisposed = document.getElementById('m-disposed').value === 'true';
+  document.getElementById('m-disposal-wrap').style.display = isDisposed ? '' : 'none';
+  // Only show journal btn if it's an existing disposed asset (has id)
+  const djBtn = document.getElementById('m-disposal-journal-btn');
+  if (djBtn) djBtn.style.display = (isDisposed && editingAssetId) ? '' : 'none';
 }
 
 function copyAsset(id) {
@@ -1961,6 +2913,8 @@ function copyAsset(id) {
   document.getElementById('m-tax-method').value = a.taxMethod || 's11e';
   document.getElementById('m-s11e').value = a.s11ePeriod || 3;
   document.getElementById('m-disposed').value = 'false';
+  const _djBtn = document.getElementById('m-disposal-journal-btn');
+  if (_djBtn) _djBtn.style.display = 'none';
   document.getElementById('m-disp-date').value = '';
   document.getElementById('m-disp-proc').value = '';
   document.getElementById('m-disp-reason').value = '';
@@ -2160,6 +3114,7 @@ function renderSettings() {
   document.getElementById('s-review').value = c.reviewer||'';
   document.getElementById('s-notes').value = c.notes||'';
   renderGroupsList();
+  renderAccountingSettings();
 }
 
 function saveSettings() {
@@ -2184,6 +3139,210 @@ function saveNotes() {
   if (!db.client) db.client = {};
   db.client.notes = document.getElementById('s-notes').value;
   showToast('✓ Notes saved', 'green');
+}
+
+// ═══════════════════════════════════════════════════════
+// ACCOUNTING SYSTEM SETTINGS
+// ═══════════════════════════════════════════════════════
+
+function renderAccountingSettings() {
+  if (!db) return;
+  const sys = document.getElementById('s-accsys');
+  if (sys) sys.value = db.client?.accountingSystem || 'sage';
+
+  const tbody = document.getElementById('s-accounts-body');
+  if (!tbody) return;
+
+  const accounts = db.client?.accounts || {};
+  tbody.innerHTML = (db.groups||[]).map(g => {
+    const ac = accounts[g.id] || {};
+    return `<tr>
+      <td style="font-weight:500;font-size:12px;">${g.name}</td>
+      <td><input type="text" style="width:100%;font-size:11px;"
+        id="ac-depr-${g.id}" value="${ac.deprExpense||''}"
+        placeholder="e.g. Depreciation — ${g.name}"></td>
+      <td><input type="text" style="width:100%;font-size:11px;"
+        id="ac-accum-${g.id}" value="${ac.accumDepr||''}"
+        placeholder="e.g. Accumulated Depreciation — ${g.name}"></td>
+      <td><input type="text" style="width:100%;font-size:11px;"
+        id="ac-cost-${g.id}" value="${ac.assetCost||''}"
+        placeholder="e.g. Plant & Machinery — Cost"></td>
+      <td><input type="text" style="width:100%;font-size:11px;"
+        id="ac-disp-${g.id}" value="${ac.disposal||''}"
+        placeholder="Asset Disposal"></td>
+    </tr>`;
+  }).join('');
+}
+
+function saveAccountingSettings() {
+  if (!db) return;
+  if (!db.client) db.client = {};
+  db.client.accountingSystem = document.getElementById('s-accsys').value;
+  if (!db.client.accounts) db.client.accounts = {};
+  (db.groups||[]).forEach(g => {
+    db.client.accounts[g.id] = {
+      deprExpense: document.getElementById(`ac-depr-${g.id}`)?.value || '',
+      accumDepr:   document.getElementById(`ac-accum-${g.id}`)?.value || '',
+      assetCost:   document.getElementById(`ac-cost-${g.id}`)?.value || '',
+      disposal:    document.getElementById(`ac-disp-${g.id}`)?.value || '',
+    };
+  });
+  _markDirty();
+  showToast('✓ Accounting settings saved', 'green');
+}
+
+// ═══════════════════════════════════════════════════════
+// JOURNAL CSV GENERATORS
+// ═══════════════════════════════════════════════════════
+
+/** Build a CSV string from rows array based on accounting system */
+function _buildJournalCSV(rows, sys) {
+  // rows: [{date, dc, account, ref, desc, amount, affecting}]
+  // For Sage: ONE line per entry — debit account + affecting account (contra implied)
+  // Only include Debit rows; Sage handles the credit via Affecting Account
+  if (sys === 'qbo') {
+    // QBO: Date,Journal No,Currency,Memo,Account,Debits,Credits,Description,Name,Location,Class
+    const header = 'Date,Journal No,Currency,Memo,Account,Debits,Credits,Description,Name,Location,Class';
+    const lines  = rows.map(r => {
+      const debit  = r.dc === 'Debit'  ? r.amount.toFixed(2) : '';
+      const credit = r.dc === 'Credit' ? r.amount.toFixed(2) : '';
+      return [r.date, r.ref, 'ZAR', r.affecting||'', r.account,
+              debit, credit, r.desc, '', '', ''].map(v=>`"${v}"`).join(',');
+    });
+    return header + '\n' + lines.join('\n');
+  } else {
+    // Sage: one line per entry, Debit rows only — Affecting Account is the contra
+    const header = 'Date,Debit/Credit,Account,Reference,Description,VAT Type,Exclusive,VAT,Total,Affecting Account,Comment,Analysis Code 1,Analysis Code 2,Analysis Code 3';
+    const lines  = rows
+      .filter(r => r.dc === 'Debit')
+      .map(r =>
+        [r.date, 'Debit', r.account, r.ref, r.desc,
+         'No VAT', r.amount.toFixed(2), '0.00', r.amount.toFixed(2),
+         r.affecting||'', r.comment||'', '', '', ''].map(v=>`"${v}"`).join(',')
+      );
+    return header + '\n' + lines.join('\n');
+  }
+}
+
+/** Download a depreciation journal CSV for a given month — one line per asset GROUP */
+function _downloadDeprJournalCSV(fyYear, month, ref) {
+  const sys      = db.client?.accountingSystem || 'sage';
+  const accounts = db.client?.accounts || {};
+  const fyB      = getFYBoundaries(fyYear);
+  const calYr    = fyB.calYearOf(month);
+  const mo       = ALL_MONTHS_NUM[month];
+  const lastDay  = new Date(calYr, mo, 0).getDate();
+  const dateStr  = sys === 'qbo'
+    ? `${String(mo).padStart(2,'0')}/${lastDay}/${calYr}`
+    : `${lastDay}/${String(mo).padStart(2,'0')}/${calYr}`;
+  const idx      = FY_MONTHS.indexOf(month);
+
+  // Sum per group
+  const groupTotals = {};
+  (db.assets||[]).forEach(a => {
+    const amt = getMonthlyAmounts(a, fyYear)[idx] || 0;
+    if (!amt) return;
+    if (!groupTotals[a.groupId]) groupTotals[a.groupId] = 0;
+    groupTotals[a.groupId] += amt;
+  });
+
+  const rows = [];
+  (db.groups||[]).forEach(g => {
+    const tot = groupTotals[g.id];
+    if (!tot) return;
+    const ac      = accounts[g.id] || {};
+    const deprAcc = ac.deprExpense || `Depreciation — ${g.name}`;
+    const accumAcc= ac.accumDepr   || `Accumulated Depreciation — ${g.name}`;
+    const desc    = `Depreciation ${g.name} — ${month} ${fyYear}`;
+    rows.push({ date:dateStr, dc:'Debit',  account:deprAcc,  ref, desc, amount:tot, affecting:accumAcc });
+    rows.push({ date:dateStr, dc:'Credit', account:accumAcc, ref, desc, amount:tot, affecting:deprAcc  });
+  });
+
+  const csv  = _buildJournalCSV(rows, sys);
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = `Depreciation_${month}_${fyYear}${ref?'_'+ref:''}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('✓ Journal CSV downloaded', 'green');
+}
+
+/** Generate disposal journal CSV for the currently editing asset */
+function generateDisposalJournal() {
+  if (!editingAssetId || !db) return;
+  const a = (db.assets||[]).find(x => x.id === editingAssetId);
+  if (!a || !a.disposed) { showToast('Asset is not marked as disposed', ''); return; }
+
+  const sys      = db.client?.accountingSystem || 'sage';
+  const accounts = db.client?.accounts || {};
+  const ac       = accounts[a.groupId] || {};
+  const g        = (db.groups||[]).find(x=>x.id===a.groupId);
+  const gName    = g?.name || 'Asset';
+
+  // Figures at disposal date
+  const dispDate  = a.disposalDate || '';
+  const proceeds  = parseFloat(a.disposalProceeds) || 0;
+  const cost      = a.cost || 0;
+
+  // Accum depr up to disposal — from ledger
+  _clearCache();
+  const dispFY    = getFYBoundaries(db.client?.currentYear || 2026);
+  // Use getAccumDeprForFY for the FY in which disposal occurred
+  // Approximate: get disposal FY from disposal date
+  let dispFYYear  = db.client?.currentYear || 2026;
+  if (a.disposalDate) {
+    const dispDt = new Date(a.disposalDate);
+    const {endMonth, endDay} = parseFYEnd();
+    const fyEnd = new Date(dispDt.getFullYear(), endMonth-1, endDay);
+    dispFYYear  = dispDt <= fyEnd ? dispDt.getFullYear() : dispDt.getFullYear()+1;
+  }
+  const accumDepr = getAccumDeprForFY(a, dispFYYear);
+  const bvAtDisp  = Math.max(0, cost - accumDepr);
+  const profitLoss = proceeds - bvAtDisp;
+
+  // Format date for accounting system
+  let dateStr = dispDate;
+  if (dispDate) {
+    const [yr,mo,dy] = dispDate.split('-');
+    dateStr = sys==='qbo' ? `${mo}/${dy}/${yr}` : `${dy}/${mo}/${yr}`;
+  }
+
+  const ref        = `DISP-${a.id.toUpperCase()}`;
+  const costAcc    = ac.assetCost  || `${gName} — Cost`;
+  const accumAcc   = ac.accumDepr  || `Accumulated Depreciation — ${gName}`;
+  const dispAcc    = ac.disposal   || 'Asset Disposal';
+  const plAcc      = profitLoss >= 0 ? 'Profit on Disposal of Assets' : 'Loss on Disposal of Assets';
+
+  const rows = [];
+  // 1. Cr Asset Cost (remove cost)
+  rows.push({date:dateStr, dc:'Credit', account:costAcc,  ref, desc:`Disposal — ${a.description}`, amount:cost,      affecting:dispAcc});
+  // 2. Dr Accumulated Depreciation (reverse accum)
+  rows.push({date:dateStr, dc:'Debit',  account:accumAcc, ref, desc:`Disposal — ${a.description}`, amount:accumDepr, affecting:dispAcc});
+  // 3. Dr Asset Disposal (BV)  — net of cost and accum
+  if (bvAtDisp > 0) {
+    rows.push({date:dateStr, dc:'Debit', account:dispAcc, ref, desc:`BV at disposal — ${a.description}`, amount:bvAtDisp, affecting:costAcc});
+  }
+  // 4. Dr Cash/Proceeds
+  if (proceeds > 0) {
+    rows.push({date:dateStr, dc:'Debit', account:'Bank / Debtors', ref, desc:`Proceeds — ${a.description}`, amount:proceeds, affecting:dispAcc});
+  }
+  // 5. P&L
+  if (Math.abs(profitLoss) > 0.005) {
+    const plDC = profitLoss >= 0 ? 'Credit' : 'Debit';
+    rows.push({date:dateStr, dc:plDC, account:plAcc, ref,
+      desc:`${profitLoss>=0?'Profit':'Loss'} on disposal — ${a.description}`,
+      amount:Math.abs(profitLoss), affecting:dispAcc});
+  }
+
+  const csv  = _buildJournalCSV(rows, sys);
+  const blob = new Blob([csv], {type:'text/csv'});
+  const el   = document.createElement('a');
+  el.href    = URL.createObjectURL(blob);
+  el.download = `DisposalJournal_${a.id}_${dispDate||'unknown'}.csv`;
+  el.click();
+  URL.revokeObjectURL(el.href);
+  showToast(`✓ Disposal journal downloaded`, 'green');
 }
 
 function renderGroupsList() {
@@ -2249,6 +3408,11 @@ function exportPDF() {
   document.head.appendChild(script);
 }
 
+function getTaxAccumDeprPDF(asset, fyYear) {
+  // Wrapper so generatePDF can call engine function
+  return getTaxAccumDepr(asset, fyYear);
+}
+
 function generatePDF() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
@@ -2260,162 +3424,347 @@ function generatePDF() {
   const fyEnd   = fyBoundsPDF.fyEndLabel;
   const fyStart = fyBoundsPDF.fyStartLabel;
   const printDate = new Date().toLocaleDateString('en-ZA');
+  const fyEnd_d = fyBoundsPDF.fyEndDate;
+  const fyStart_d = fyBoundsPDF.fyStartDate;
 
-  const RED=[132,8,17],BLACK=[26,26,24],GREY=[90,90,84],LGREY=[247,247,245],DGREY=[215,215,210],WHITE=[255,255,255];
-  const W=297,H=210,ML=10,MR=10,MT=10;
-  let y=MT;
+  const RED=[132,8,17],BLACK=[26,26,24],GREY=[110,110,104],LGREY=[247,247,245],DGREY=[215,215,210],WHITE=[255,255,255];
+  const W=297,H=210,ML=8,MR=8,MT=8;
+  let y=MT, pageNum=0;
 
-  function rnd(n){return n==null?'—':Number(n).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2});}
-  function sf(sz,st='normal',c=BLACK){doc.setFontSize(sz);doc.setFont('helvetica',st);doc.setTextColor(...c);}
-  function hl(yy,c=DGREY,lw=0.2){doc.setDrawColor(...c);doc.setLineWidth(lw);doc.line(ML,yy,W-MR,yy);}
-  function chk(n){if(y+n>H-10){doc.addPage();y=MT;ph();}}
+  function rnd(n){ return n==null?'—':Number(n).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  function sf(sz,st='normal',c=BLACK){ doc.setFontSize(sz);doc.setFont('helvetica',st);doc.setTextColor(...c); }
+  function hl(yy,c=DGREY,lw=0.2){ doc.setDrawColor(...c);doc.setLineWidth(lw);doc.line(ML,yy,W-MR,yy); }
+  function chk(n){ if(y+n>H-10){ doc.addPage();y=MT;ph(); } }
 
   function ph(){
+    pageNum++;
     doc.setFillColor(...RED);doc.rect(ML,y,W-ML-MR,7,'F');
     sf(9,'bold',WHITE);doc.text(client.name||'Client',ML+2,y+4.8);
     sf(7,'normal',WHITE);doc.text(`Property, Plant and Equipment  ·  Year ended ${fyEnd}`,W-MR-2,y+4.8,{align:'right'});
-    y+=9;sf(6.5,'normal',GREY);doc.text(`Prepared: ${preparedBy}`,ML,y+3);
-    doc.text(`Printed: ${printDate}`,W-MR-2,y+3,{align:'right'});y+=6;hl(y);y+=2;
+    y+=9;sf(6,'normal',GREY);
+    doc.text(`Prepared: ${preparedBy}`,ML,y+3);
+    doc.text(`Printed: ${printDate}`,W-MR-2,y+3,{align:'right'});
+    y+=6;hl(y);y+=2;
   }
 
-  const fyEnd_d=fyBoundsPDF.fyEndDate,fyStart_d=fyBoundsPDF.fyStartDate;
-  const groups=db.groups||[];
-  const assets=(db.assets||[]).filter(a=>{
+  // Gather all assets visible in this FY
+  const groups = db.groups||[];
+  const allAssets = (db.assets||[]).filter(a => {
     if(!a.acquisitionDate)return true;
     const acq=new Date(a.acquisitionDate);
     if(acq>fyEnd_d)return false;
     if(a.disposed&&a.disposalDate&&new Date(a.disposalDate)<fyStart_d)return false;
     return true;
   });
-  const gd={};groups.forEach(g=>{gd[g.id]={group:g,assets:[]};});
-  let GC=0,GA=0,GT=0;
-  assets.forEach(a=>{
-    if(!gd[a.groupId])gd[a.groupId]={group:{name:'Other',id:a.groupId},assets:[]};
-    const accum=getAccumDeprForFY(a,fyYear),bv=Math.max(1,(a.cost||0)-accum);
-    const taxAccum=getTaxAccumDepr(a,fyYear),taxBV=taxAccum!==null?Math.max(1,(a.cost||0)-taxAccum):null;
-    gd[a.groupId].assets.push({asset:a,accum,bv,taxAccum,taxBV});
-    GC+=a.cost||0;GA+=accum;if(taxAccum!==null)GT+=taxAccum;
+
+  // Pre-compute per asset
+  const aData = {};
+  allAssets.forEach(a => {
+    const accumOpen  = getAccumDeprForFY(a, fyYear-1);
+    const accumClose = getAccumDeprForFY(a, fyYear);
+    const cyDepr     = Math.max(0, accumClose - accumOpen);
+    const bvClose    = Math.max(a.residual||0, (a.cost||0) - accumClose);
+    const taxAccum   = getTaxAccumDepr(a, fyYear);
+    const taxBV      = taxAccum!==null ? Math.max(0,(a.cost||0)-taxAccum) : null;
+    const acqDate    = a.acquisitionDate ? new Date(a.acquisitionDate) : null;
+    const isAddition = acqDate && acqDate>=fyStart_d && acqDate<=fyEnd_d;
+    const isDisposal = a.disposed && a.disposalDate &&
+                       new Date(a.disposalDate)>=fyStart_d && new Date(a.disposalDate)<=fyEnd_d;
+    aData[a.id] = { accumOpen, accumClose, cyDepr, bvClose, taxAccum, taxBV, isAddition, isDisposal };
   });
 
-  // PAGE 1 — PPE note
+  // ── PAGE 1: ASSET REGISTER ─────────────────────────────────────────────
   ph();
-  sf(8,'bold',RED);doc.text('NOTE 1 — PROPERTY, PLANT AND EQUIPMENT',ML,y+3.5);y+=7;
-  const c={desc:ML,date:107,cost:140,aA:165,aBV:188,tA:212,tBV:236};
-  const cw=W-ML-MR;
-  doc.setFillColor(...LGREY);doc.rect(ML,y,cw,6,'F');
-  sf(6,'bold',GREY);
-  doc.text('Asset',c.desc+1,y+4);doc.text('Acq. Date',c.date,y+4,{align:'right'});
-  doc.text('Cost',c.cost,y+4,{align:'right'});doc.text('Acc. Depr (Acc)',c.aA,y+4,{align:'right'});
-  doc.text('BV (Acc)',c.aBV,y+4,{align:'right'});doc.text('Acc. Depr (Tax)',c.tA,y+4,{align:'right'});
-  doc.text('BV (Tax)',c.tBV,y+4,{align:'right'});y+=7;
+  sf(8,'bold',RED);doc.text('NOTE — PROPERTY, PLANT AND EQUIPMENT',ML,y+3.5);y+=7;
 
-  groups.forEach(g=>{
-    const d=gd[g.id];if(!d||!d.assets.length)return;
-    let gCost=0,gAcc=0,gBV=0,gTA=0,gTBV=0,hasTax=false;
-    d.assets.forEach(({asset,accum,bv,taxAccum,taxBV})=>{
-      gCost+=asset.cost||0;gAcc+=accum;gBV+=bv;
-      if(taxAccum!==null){gTA+=taxAccum;gTBV+=taxBV||0;hasTax=true;}
+  // Column positions for asset register
+  // Description | Acq Date | Cost | Residual | Acc Depr (Open) | CY Depr | Acc Depr (Close) | BV (Acc) | Tax Acc Depr | BV (Tax)
+  const c={desc:ML,date:80,cost:101,res:116,aO:132,cy:148,aC:164,bv:180,tAO:196,tCY:212,tA:228,tBV:245};
+  const cw=W-ML-MR;
+
+  // Header
+  doc.setFillColor(...LGREY);doc.rect(ML,y,cw,6,'F');
+  sf(5,'bold',GREY);
+  doc.text('Asset',c.desc+1,y+4);
+  doc.text('Acq Date',c.date,y+4,{align:'right'});
+  doc.text('Cost',c.cost,y+4,{align:'right'});
+  doc.text('Residual',c.res,y+4,{align:'right'});
+  doc.text('Acc Depr\nOpening',c.aO,y+2.5,{align:'right'});
+  doc.text('CY Depr',c.cy,y+4,{align:'right'});
+  doc.text('Acc Depr\nClosing',c.aC,y+2.5,{align:'right'});
+  doc.text('BV (Acc)',c.bv,y+4,{align:'right'});
+  doc.text('Acc Tax\nDepr (Open)',c.tAO,y+2.5,{align:'right'});
+  doc.text('CY Tax\nDepr',c.tCY,y+2.5,{align:'right'});
+  doc.text('Acc Tax\nDepr (Close)',c.tA,y+2.5,{align:'right'});
+  doc.text('BV (Tax)',c.tBV,y+4,{align:'right'});
+  y+=7;
+
+  let gTotCost=0,gTotAccO=0,gTotCY=0,gTotAccC=0,gTotBV=0,gTotTA=0,gTotTBV=0;
+
+  groups.forEach(g => {
+    const gassets = allAssets.filter(a=>a.groupId===g.id);
+    if(!gassets.length)return;
+
+    // Split into existing, additions, disposals
+    const existing  = gassets.filter(a=>{
+      const d=aData[a.id]; return !d.isAddition;
     });
-    chk(7);doc.setFillColor(235,235,230);doc.rect(ML,y,cw,5.5,'F');
-    sf(6.5,'bold',BLACK);doc.text(g.name.toUpperCase(),c.desc+1,y+3.8);y+=6;
-    d.assets.forEach(({asset,accum,bv,taxAccum,taxBV})=>{
-      chk(5);sf(6,'normal',BLACK);
-      const desc=asset.description.length>55?asset.description.substring(0,54)+'…':asset.description;
-      doc.text(desc,c.desc+3,y+3.5);sf(6,'normal',GREY);doc.text(asset.acquisitionDate||'—',c.date,y+3.5,{align:'right'});
-      sf(6,'normal',BLACK);doc.text(rnd(asset.cost),c.cost,y+3.5,{align:'right'});
-      doc.text(`(${rnd(accum)})`,c.aA,y+3.5,{align:'right'});doc.text(rnd(bv),c.aBV,y+3.5,{align:'right'});
-      doc.text(taxAccum!==null?`(${rnd(taxAccum)})`:'—',c.tA,y+3.5,{align:'right'});
-      doc.text(taxBV!==null?rnd(taxBV):'—',c.tBV,y+3.5,{align:'right'});
-      hl(y+5,DGREY,0.1);y+=5.2;
+    const additions = gassets.filter(a=>aData[a.id].isAddition);
+    const disposals = gassets.filter(a=>aData[a.id].isDisposal);
+
+    // Group totals — existing+additions positive, disposals negative
+    let grpCost=0,grpAccO=0,grpCY=0,grpAccC=0,grpBV=0,grpTA=0,grpTBV=0,grpHasTax=false;
+    [...existing,...additions].forEach(a=>{
+      const d=aData[a.id];
+      grpCost+=a.cost||0;grpAccO+=d.accumOpen;grpCY+=d.cyDepr;
+      grpAccC+=d.accumClose;grpBV+=d.bvClose;
+      if(d.taxAccum!==null){grpHasTax=true;grpTA+=d.taxAccum;grpTBV+=d.taxBV||0;}
     });
-    chk(7);hl(y,BLACK,0.3);y+=1;sf(6.5,'bold',BLACK);
+    disposals.forEach(a=>{
+      const d=aData[a.id];
+      grpCost-=a.cost||0;grpAccO-=d.accumOpen;grpAccC-=d.accumClose;grpBV-=d.bvClose;
+    });
+
+    // Group header
+    chk(6);doc.setFillColor(235,235,230);doc.rect(ML,y,cw,5.5,'F');
+    sf(6.5,'bold',BLACK);doc.text(g.name.toUpperCase(),c.desc+1,y+3.8);
+    // Group tax totals
+    let grpTAO=0,grpTCY=0;
+    [...existing,...additions].forEach(a=>{
+      const tp=getTaxAccumDeprPDF(a,fyYear-1)||0;
+      const tc=aData[a.id].taxAccum||0;
+      grpTAO+=tp; grpTCY+=Math.max(0,tc-tp);
+    });
+    sf(6,'bold',BLACK);
+    doc.text(rnd(grpCost),c.cost,y+3.8,{align:'right'});
+    doc.text(grpAccO?`(${rnd(Math.abs(grpAccO))})`:rnd(0),c.aO,y+3.8,{align:'right'});
+    doc.text(grpCY?`(${rnd(grpCY)})`:rnd(0),c.cy,y+3.8,{align:'right'});
+    doc.text(`(${rnd(Math.abs(grpAccC))})`,c.aC,y+3.8,{align:'right'});
+    doc.text(rnd(Math.abs(grpBV)),c.bv,y+3.8,{align:'right'});
+    doc.text(grpHasTax?`(${rnd(grpTAO)})`:'—',c.tAO,y+3.8,{align:'right'});
+    doc.text(grpHasTax?`(${rnd(grpTCY)})`:'—',c.tCY,y+3.8,{align:'right'});
+    doc.text(grpHasTax?`(${rnd(grpTA)})`:'—',c.tA,y+3.8,{align:'right'});
+    doc.text(grpHasTax?rnd(grpTBV):'—',c.tBV,y+3.8,{align:'right'});
+    y+=6;
+
+    // Render asset row helper
+    const renderRow = (a, isNeg) => {
+      chk(5);
+      const d = aData[a.id];
+      const desc = a.description.length>48?a.description.substring(0,47)+'…':a.description;
+      sf(5.5,'normal',isNeg?[150,30,30]:BLACK);
+      doc.text((isNeg?'  (disposal) ':'')+desc,c.desc+4,y+3.2);
+      sf(5.5,'normal',GREY);
+      doc.text(a.acquisitionDate||'—',c.date,y+3.2,{align:'right'});
+      sf(5.5,'normal',isNeg?[150,30,30]:BLACK);
+      // Cost — negative for disposals
+      doc.text(isNeg?`(${rnd(a.cost)})`:rnd(a.cost),c.cost,y+3.2,{align:'right'});
+      doc.text(a.residual?rnd(a.residual):'—',c.res,y+3.2,{align:'right'});
+      // Acc Depr Opening — always in brackets, negative for disposals reverses sign
+      const accOStr = d.accumOpen > 0 ? (isNeg ? rnd(d.accumOpen) : `(${rnd(d.accumOpen)})`) : rnd(0);
+      doc.text(accOStr,c.aO,y+3.2,{align:'right'});
+      // CY Depr — always in brackets
+      doc.text(d.cyDepr?`(${rnd(d.cyDepr)})`:rnd(0),c.cy,y+3.2,{align:'right'});
+      // Acc Depr Closing
+      const accCStr = d.accumClose > 0 ? (isNeg ? rnd(d.accumClose) : `(${rnd(d.accumClose)})`) : rnd(0);
+      doc.text(accCStr,c.aC,y+3.2,{align:'right'});
+      // BV Acc
+      doc.text(isNeg?`(${rnd(d.bvClose)})`:rnd(d.bvClose),c.bv,y+3.2,{align:'right'});
+      // Tax: Opening accum, CY tax depr, closing accum, BV tax
+      const taxPrior = getTaxAccumDeprPDF(a, fyYear-1);
+      const cyTax = d.taxAccum !== null && taxPrior !== null
+        ? Math.max(0, d.taxAccum - taxPrior) : null;
+      const taxFloor = Math.max(0, (a.cost||0) - (d.taxAccum||0));
+      const taxBVfinal = d.taxAccum !== null ? Math.max(1, taxFloor) : null;
+      doc.text(taxPrior!==null?`(${rnd(taxPrior)})`:'—',c.tAO,y+3.2,{align:'right'});
+      doc.text(cyTax?`(${rnd(cyTax)})`:'—',c.tCY,y+3.2,{align:'right'});
+      doc.text(d.taxAccum!==null?`(${rnd(d.taxAccum)})`:'—',c.tA,y+3.2,{align:'right'});
+      doc.text(taxBVfinal!==null?rnd(taxBVfinal):'—',c.tBV,y+3.2,{align:'right'});
+      hl(y+4.5,DGREY,0.1);y+=5;
+    };
+
+    // Existing section label
+    if(existing.length){
+      chk(4);sf(5.5,'bold',GREY);doc.text('Existing',c.desc+2,y+3);y+=4;
+      existing.forEach(a=>renderRow(a,false));
+    }
+    if(additions.length){
+      chk(4);sf(5.5,'bold',GREY);doc.text('Additions',c.desc+2,y+3);y+=4;
+      additions.forEach(a=>renderRow(a,false));
+    }
+    if(disposals.length){
+      chk(4);sf(5.5,'bold',GREY);doc.text('Disposals',c.desc+2,y+3);y+=4;
+      disposals.forEach(a=>renderRow(a,true));
+    }
+
+    // Group subtotal line
+    chk(6);hl(y,BLACK,0.3);y+=1;sf(6,'bold',BLACK);
     doc.text(`Total — ${g.name}`,c.desc+1,y+3.5);
-    doc.text(rnd(gCost),c.cost,y+3.5,{align:'right'});
-    doc.text(`(${rnd(gAcc)})`,c.aA,y+3.5,{align:'right'});doc.text(rnd(gBV),c.aBV,y+3.5,{align:'right'});
-    doc.text(hasTax?`(${rnd(gTA)})`:'—',c.tA,y+3.5,{align:'right'});doc.text(hasTax?rnd(gTBV):'—',c.tBV,y+3.5,{align:'right'});
+    doc.text(rnd(grpCost),c.cost,y+3.5,{align:'right'});
+    doc.text(`(${rnd(Math.abs(grpAccO))})`,c.aO,y+3.5,{align:'right'});
+    doc.text(`(${rnd(grpCY)})`,c.cy,y+3.5,{align:'right'});
+    doc.text(`(${rnd(Math.abs(grpAccC))})`,c.aC,y+3.5,{align:'right'});
+    doc.text(rnd(Math.abs(grpBV)),c.bv,y+3.5,{align:'right'});
+    doc.text(grpHasTax?`(${rnd(grpTAO)})`:'—',c.tAO,y+3.5,{align:'right'});
+    doc.text(grpHasTax?`(${rnd(grpTCY)})`:'—',c.tCY,y+3.5,{align:'right'});
+    doc.text(grpHasTax?`(${rnd(grpTA)})`:'—',c.tA,y+3.5,{align:'right'});
+    doc.text(grpHasTax?rnd(grpTBV):'—',c.tBV,y+3.5,{align:'right'});
     y+=7;
+
+    gTotCost+=grpCost;gTotAccO+=grpAccO;gTotCY+=grpCY;gTotAccC+=grpAccC;
+    gTotBV+=grpBV;gTotTA+=grpTA;gTotTBV+=grpTBV;
   });
 
-  chk(8);hl(y,BLACK,0.5);y+=1;sf(7,'bold',BLACK);doc.text('Total',c.desc+1,y+4);
-  doc.text(rnd(GC),c.cost,y+4,{align:'right'});doc.text(`(${rnd(GA)})`,c.aA,y+4,{align:'right'});
-  doc.text(rnd(GC-GA),c.aBV,y+4,{align:'right'});doc.text(`(${rnd(GT)})`,c.tA,y+4,{align:'right'});
-  doc.text(rnd(GC-GT),c.tBV,y+4,{align:'right'});hl(y+6,BLACK,0.5);y+=12;
+  // Grand total
+  chk(8);hl(y,BLACK,0.5);y+=1;sf(7,'bold',BLACK);
+  doc.text('Total',c.desc+1,y+4);
+  // Grand total tax opening and CY tax
+  let gTotTAO=0,gTotTCY=0;
+  allAssets.filter(a=>!aData[a.id].isDisposal).forEach(a=>{
+    const tp=getTaxAccumDeprPDF(a,fyYear-1)||0;
+    const tc=aData[a.id].taxAccum||0;
+    gTotTAO+=tp; gTotTCY+=Math.max(0,tc-tp);
+  });
+  doc.text(rnd(gTotCost),c.cost,y+4,{align:'right'});
+  doc.text(`(${rnd(Math.abs(gTotAccO))})`,c.aO,y+4,{align:'right'});
+  doc.text(`(${rnd(gTotCY)})`,c.cy,y+4,{align:'right'});
+  doc.text(`(${rnd(Math.abs(gTotAccC))})`,c.aC,y+4,{align:'right'});
+  doc.text(rnd(Math.abs(gTotBV)),c.bv,y+4,{align:'right'});
+  doc.text(`(${rnd(gTotTAO)})`,c.tAO,y+4,{align:'right'});
+  doc.text(`(${rnd(gTotTCY)})`,c.tCY,y+4,{align:'right'});
+  doc.text(`(${rnd(gTotTA)})`,c.tA,y+4,{align:'right'});
+  doc.text(rnd(gTotTBV),c.tBV,y+4,{align:'right'});
+  hl(y+6,BLACK,0.5);y+=12;
 
   // Deferred tax
-  chk(30);
-  const aBV=GC-GA,tBV=GC-GT,td=aBV-tBV,dtl=td*taxRate;
+  chk(32);
+  const dtDiff = Math.abs(gTotBV) - gTotTBV;
+  const dtLiab = dtDiff * taxRate;
   sf(7,'bold',BLACK);doc.text('DEFERRED TAX',ML,y);y+=5;
-  [['Accounting carrying value',rnd(aBV)],['Tax book value',rnd(tBV)],['Temporary difference',rnd(td)],
-   [`Deferred tax liability @ ${client.taxRate||27}%`,rnd(dtl)]].forEach(([lbl,val],i)=>{
+  [
+    ['Accounting carrying value', rnd(Math.abs(gTotBV))],
+    ['Tax book value', rnd(gTotTBV)],
+    ['Temporary difference', rnd(dtDiff)],
+    [`Deferred tax liability @ ${client.taxRate||27}%`, rnd(dtLiab)]
+  ].forEach(([lbl,val],i)=>{
     const bold=i===3;if(bold){hl(y,BLACK,0.4);y+=1;}
     sf(6.5,bold?'bold':'normal',bold?RED:BLACK);
-    doc.text(lbl,ML+2,y+3.5);doc.text(`R ${val}`,ML+85,y+3.5,{align:'right'});y+=5.5;
+    doc.text(lbl,ML+2,y+3.5);doc.text(`R ${val}`,ML+90,y+3.5,{align:'right'});y+=5.5;
   });
-  hl(y,BLACK,0.4);y+=12;
+  hl(y,BLACK,0.4);y+=3;
 
-  // PAGE 2 — Movement
+  // ── PAGE 2: MOVEMENT SCHEDULE ──────────────────────────────────────────
   doc.addPage();y=MT;ph();
   sf(8,'bold',RED);doc.text('CARRYING VALUE MOVEMENT',ML,y+3.5);y+=8;
-  const mc={lbl:ML,aO:88,aA:114,aD:140,aC:165,tO:180,tA:204,tD:229,tC:254};
-  doc.setFillColor(...LGREY);doc.rect(ML,y,cw,10,'F');
-  sf(6,'bold',GREY);
-  doc.text('ACCOUNTING BASIS',(mc.aO+mc.aC)/2,y+3.5,{align:'center'});
-  doc.text('TAX BASIS',(mc.tO+mc.tC)/2,y+3.5,{align:'center'});
-  hl(y+5,DGREY,0.2);sf(5.5,'normal',GREY);
-  doc.text('Asset Class',mc.lbl+1,y+8.5);
-  doc.text(`Opening\n${fyStart}`,mc.aO,y+7.5,{align:'right'});doc.text('Additions',mc.aA,y+8.5,{align:'right'});
-  doc.text('Depreciation',mc.aD,y+8.5,{align:'right'});doc.text(`Closing\n${fyEnd}`,mc.aC,y+7.5,{align:'right'});
-  doc.text(`Opening\n${fyStart}`,mc.tO,y+7.5,{align:'right'});doc.text('Additions',mc.tA,y+8.5,{align:'right'});
-  doc.text('Depreciation',mc.tD,y+8.5,{align:'right'});doc.text(`Closing\n${fyEnd}`,mc.tC,y+7.5,{align:'right'});
-  y+=12;
-  const fyS=fyBoundsPDF.fyStartDate,fyE=fyBoundsPDF.fyEndDate;
-  let mAO=0,mAA=0,mAD=0,mAC=0,mTO=0,mTA=0,mTD=0,mTC=0;
+
+  // Columns: Asset Class | aOpen | aAdd | aDisp | aDepr | aClose | tOpen | tAdd | tDisp | tDepr | tClose
+  const mc={lbl:ML,aO:70,aA:92,aD:114,aDP:136,aCL:158,tO:178,tA:197,tD:216,tDP:235,tCL:256};
+  doc.setFillColor(...LGREY);doc.rect(ML,y,cw,11,'F');
+  sf(5.5,'bold',GREY);
+  doc.text('ACCOUNTING BASIS',(mc.aO+mc.aCL)/2,y+3.5,{align:'center'});
+  doc.text('TAX BASIS',(mc.tO+mc.tCL)/2,y+3.5,{align:'center'});
+  hl(y+5,DGREY,0.2);
+  sf(5,'normal',GREY);
+  doc.text('Asset Class',mc.lbl+1,y+9);
+  doc.text(`Opening\n${fyStart}`,mc.aO,y+8,{align:'right'});
+  doc.text('Additions',mc.aA,y+9,{align:'right'});
+  doc.text('Disposals',mc.aD,y+9,{align:'right'});
+  doc.text('Depreciation',mc.aDP,y+9,{align:'right'});
+  doc.text(`Closing\n${fyEnd}`,mc.aCL,y+8,{align:'right'});
+  doc.text(`Opening\n${fyStart}`,mc.tO,y+8,{align:'right'});
+  doc.text('Additions',mc.tA,y+9,{align:'right'});
+  doc.text('Disposals',mc.tD,y+9,{align:'right'});
+  doc.text('Depreciation',mc.tDP,y+9,{align:'right'});
+  doc.text(`Closing\n${fyEnd}`,mc.tCL,y+8,{align:'right'});
+  y+=13;
+
+  let mAO=0,mAA=0,mAD=0,mADP=0,mACL=0,mTO=0,mTA=0,mTD=0,mTDP=0,mTCL=0;
+
   groups.forEach(g=>{
-    const d=gd[g.id];if(!d||!d.assets.length)return;
-    let aO=0,aA=0,aD=0,aC=0,tO=0,tA=0,tD=0,tC=0,hasTax=false;
-    d.assets.forEach(({asset,accum,bv,taxAccum,taxBV})=>{
-      const pA=getAccumDeprForFY(asset,fyYear-1),pT=getTaxAccumDepr(asset,fyYear-1);
-      const pABV=Math.max(1,(asset.cost||0)-pA),pTBV=pT!==null?Math.max(1,(asset.cost||0)-pT):null;
-      const fAD=Math.max(0,accum-pA),fTD=taxAccum!==null?Math.max(0,taxAccum-(pT||0)):null;
-      const acqD=asset.acquisitionDate?new Date(asset.acquisitionDate):null;
-      const isAdd=acqD&&acqD>=fyS&&acqD<=fyE;
-      if(isAdd){aA+=asset.cost||0;tA+=asset.cost||0;}else{aO+=pABV;if(pTBV!==null)tO+=pTBV;}
-      aD+=fAD;aC+=bv;if(taxAccum!==null){hasTax=true;tD+=fTD||0;tC+=taxBV||0;}
+    const gassets=allAssets.filter(a=>a.groupId===g.id);
+    if(!gassets.length)return;
+    let aO=0,aA=0,aD=0,aDP=0,aCL=0,tO=0,tA=0,tD=0,tDP=0,tCL=0,hasTax=false;
+
+    gassets.forEach(a=>{
+      const d=aData[a.id];
+      const pAccum = getAccumDeprForFY(a,fyYear-1);
+      const pTax   = getTaxAccumDepr(a,fyYear-1);
+      const pBV    = Math.max(a.residual||0,Math.max(1,(a.cost||0)-pAccum));
+      const pTBV   = pTax!==null?Math.max(0,(a.cost||0)-pTax):null;
+
+      if(d.isAddition){
+        aA+=a.cost||0; if(pTBV!==null){tA+=a.cost||0;hasTax=true;}
+      } else if(d.isDisposal){
+        // Opening BV of disposed asset
+        aO+=pBV; aD+=pBV; // disposed — opening BV removed
+        if(pTBV!==null){tO+=pTBV;tD+=pTBV;hasTax=true;}
+      } else {
+        aO+=pBV; if(pTBV!==null){tO+=pTBV;hasTax=true;}
+      }
+
+      if(!d.isDisposal){
+        aDP+=d.cyDepr; aCL+=d.bvClose;
+        if(d.taxAccum!==null){
+          hasTax=true;
+          const cyTax=Math.max(0,(d.taxAccum||0)-(pTax||0));
+          tDP+=cyTax; tCL+=d.taxBV||0;
+        }
+      }
     });
+
     chk(6);sf(6.5,'normal',BLACK);doc.text(g.name,mc.lbl+1,y+3.5);
-    doc.text(rnd(aO),mc.aO,y+3.5,{align:'right'});doc.text(aA?rnd(aA):'—',mc.aA,y+3.5,{align:'right'});
-    doc.text(`(${rnd(aD)})`,mc.aD,y+3.5,{align:'right'});doc.text(rnd(aC),mc.aC,y+3.5,{align:'right'});
-    doc.text(hasTax?rnd(tO):'—',mc.tO,y+3.5,{align:'right'});doc.text(hasTax&&tA?rnd(tA):'—',mc.tA,y+3.5,{align:'right'});
-    doc.text(hasTax?`(${rnd(tD)})`:'—',mc.tD,y+3.5,{align:'right'});doc.text(hasTax?rnd(tC):'—',mc.tC,y+3.5,{align:'right'});
+    doc.text(rnd(aO),mc.aO,y+3.5,{align:'right'});
+    doc.text(aA?rnd(aA):'—',mc.aA,y+3.5,{align:'right'});
+    doc.text(aD?`(${rnd(aD)})`:'—',mc.aD,y+3.5,{align:'right'});
+    doc.text(aDP?`(${rnd(aDP)})`:'—',mc.aDP,y+3.5,{align:'right'});
+    doc.text(rnd(aCL),mc.aCL,y+3.5,{align:'right'});
+    doc.text(hasTax?rnd(tO):'—',mc.tO,y+3.5,{align:'right'});
+    doc.text(hasTax&&tA?rnd(tA):'—',mc.tA,y+3.5,{align:'right'});
+    doc.text(hasTax&&tD?`(${rnd(tD)})`:'—',mc.tD,y+3.5,{align:'right'});
+    doc.text(hasTax?`(${rnd(tDP)})`:'—',mc.tDP,y+3.5,{align:'right'});
+    doc.text(hasTax?rnd(tCL):'—',mc.tCL,y+3.5,{align:'right'});
     hl(y+5,DGREY,0.1);y+=5.5;
-    mAO+=aO;mAA+=aA;mAD+=aD;mAC+=aC;mTO+=tO;mTA+=tA;mTD+=tD;mTC+=tC;
+    mAO+=aO;mAA+=aA;mAD+=aD;mADP+=aDP;mACL+=aCL;
+    mTO+=tO;mTA+=tA;mTD+=tD;mTDP+=tDP;mTCL+=tCL;
   });
+
   chk(8);hl(y,BLACK,0.4);y+=1;sf(7,'bold',BLACK);doc.text('Total',mc.lbl+1,y+4);
-  doc.text(rnd(mAO),mc.aO,y+4,{align:'right'});doc.text(mAA?rnd(mAA):'—',mc.aA,y+4,{align:'right'});
-  doc.text(`(${rnd(mAD)})`,mc.aD,y+4,{align:'right'});doc.text(rnd(mAC),mc.aC,y+4,{align:'right'});
-  doc.text(rnd(mTO),mc.tO,y+4,{align:'right'});doc.text(mTA?rnd(mTA):'—',mc.tA,y+4,{align:'right'});
-  doc.text(`(${rnd(mTD)})`,mc.tD,y+4,{align:'right'});doc.text(rnd(mTC),mc.tC,y+4,{align:'right'});
+  doc.text(rnd(mAO),mc.aO,y+4,{align:'right'});
+  doc.text(mAA?rnd(mAA):'—',mc.aA,y+4,{align:'right'});
+  doc.text(mAD?`(${rnd(mAD)})`:'—',mc.aD,y+4,{align:'right'});
+  doc.text(`(${rnd(mADP)})`,mc.aDP,y+4,{align:'right'});
+  doc.text(rnd(mACL),mc.aCL,y+4,{align:'right'});
+  doc.text(rnd(mTO),mc.tO,y+4,{align:'right'});
+  doc.text(mTA?rnd(mTA):'—',mc.tA,y+4,{align:'right'});
+  doc.text(mTD?`(${rnd(mTD)})`:'—',mc.tD,y+4,{align:'right'});
+  doc.text(`(${rnd(mTDP)})`,mc.tDP,y+4,{align:'right'});
+  doc.text(rnd(mTCL),mc.tCL,y+4,{align:'right'});
   hl(y+6,BLACK,0.5);y+=14;
 
   // Footnotes
-  chk(22);sf(6,'normal',GREY);
+  chk(28);sf(5.5,'normal',GREY);
   [`1. Depreciation is calculated on the straight-line method. Residual values and useful lives are reviewed at each reporting date.`,
    `2. Tax depreciation is calculated in terms of sections 11(e) and/or 12C of the Income Tax Act No. 58 of 1962. Tax depreciation is not recorded in the financial statements — it is claimed on the annual income tax return and gives rise to temporary differences provided for as deferred tax.`,
    `3. Deferred tax is provided at ${client.taxRate||27}% (normal company tax rate). A deferred tax liability arises where the accounting carrying value exceeds the tax book value.`,
    `4. Prepared by: ${preparedBy}. Printed: ${printDate}.`
-  ].forEach(n=>{doc.splitTextToSize(n,cw-4).forEach(l=>{doc.text(l,ML+2,y);y+=3.5;});y+=1;});
+  ].forEach(n=>{doc.splitTextToSize(n,cw-4).forEach(l=>{chk(4);doc.text(l,ML+2,y);y+=3.5;});y+=1;});
 
   // Signature block
-  chk(25);y+=5;
+  chk(30);y+=5;
   const sW=(cw-20)/3;
   ['PREPARED BY','REVIEWED BY','AUTHORISED BY'].forEach((lbl,i)=>{
-    const sx=ML+i*(sW+10);hl(y+0.1,BLACK,0.3);
-    doc.line(sx,y+12,sx+sW-5,y+12);sf(6,'normal',GREY);doc.text(lbl,sx,y+16);doc.text('Date: ___________________',sx,y+21);
+    const sx=ML+i*(sW+10);
+    doc.line(sx,y+12,sx+sW-5,y+12);
+    sf(5.5,'normal',GREY);doc.text(lbl,sx,y+16);doc.text('Date: ___________________',sx,y+21);
   });
 
   // Page numbers
   const tp=doc.getNumberOfPages();
-  for(let p=1;p<=tp;p++){doc.setPage(p);sf(6,'normal',GREY);doc.text(`Page ${p} of ${tp}`,W-MR,H-4,{align:'right'});doc.text(client.name||'',ML,H-4);}
+  for(let p=1;p<=tp;p++){
+    doc.setPage(p);sf(6,'normal',GREY);
+    doc.text(`Page ${p} of ${tp}`,W-MR,H-4,{align:'right'});
+    doc.text(client.name||'',ML,H-4);
+  }
 
   doc.save(`${(client.name||'client').replace(/[^a-zA-Z0-9]/g,'_')}_PPE_FY${fyYear}.pdf`);
 }
