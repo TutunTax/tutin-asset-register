@@ -227,7 +227,7 @@
 <div id="toast" class="toast"></div>
 
 <div class="app-header">
-  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v10.2</span></div>
+  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v10.3</span></div>
   <div id="hdr-client" class="client-name">No client loaded</div>
   <div class="header-right">
     <button class="btn btn-secondary btn-sm" onclick="newClient()">+ New Client</button>
@@ -1345,7 +1345,10 @@ function renderDashboard() {
   if (ob) ob.style.display = (!isClosed && fyYear === currentYear) ? '' : 'none';
   const btnClose  = document.getElementById('btn-close-year');
   const btnReopen = document.getElementById('btn-reopen-year');
-  if (btnClose)  btnClose.style.display  = (!isClosed && fyYear < currentYear) ? '' : 'none';
+  // Show Close Year when not yet closed AND all 12 months are locked
+  const confs2026 = (db.monthlyConfirmations||{})[String(fyYear)] || {};
+  const allLocked = getFYBoundaries(fyYear).months.every(m => confs2026[m]?.locked === true);
+  if (btnClose)  btnClose.style.display  = (!isClosed && allLocked) ? '' : 'none';
   if (btnReopen) btnReopen.style.display = isClosed ? '' : 'none';
 
   // All assets visible in this FY
@@ -2560,22 +2563,27 @@ function unlockMonth(fyYear, month) {
 
 /** Close a financial year — locks it entirely; no further posting allowed */
 function closeYear() {
-  const fyYear = parseInt(document.getElementById('monthly-year').value);
-  if (!confirm(`Close FY${fyYear}? This locks the year. Individual months can still be unlocked if needed.`)) return;
+  const fyYear = parseInt(document.getElementById('dash-year').value);
+  if (!confirm(`Close FY${fyYear}?\n\nThis will:\n• Mark the year as closed\n• Advance Current Year to ${fyYear+1}\n\nIndividual months can still be unlocked if needed.`)) return;
   if (!db.closedYears) db.closedYears = [];
   if (!db.closedYears.includes(fyYear)) db.closedYears.push(fyYear);
-  showToast(`FY${fyYear} closed`, 'green');
-  renderMonthly();
+  // Advance current year
+  if (!db.client) db.client = {};
+  db.client.currentYear = fyYear + 1;
+  _markDirty();
+  showToast(`✓ FY${fyYear} closed. Current year advanced to ${fyYear+1}.`, 'green');
+  populateYearSelects();
   renderDashboard();
 }
 
 /** Reopen a closed year */
 function reopenYear() {
-  const fyYear = parseInt(document.getElementById('monthly-year').value);
+  const fyYear = parseInt(document.getElementById('dash-year').value);
   if (!confirm(`Reopen FY${fyYear}? Closed months will remain locked individually.`)) return;
   db.closedYears = (db.closedYears || []).filter(y => y !== fyYear);
+  _markDirty();
   showToast(`FY${fyYear} reopened`, '');
-  renderMonthly();
+  renderDashboard();
 }
 
 function clearAllOverrides() {
