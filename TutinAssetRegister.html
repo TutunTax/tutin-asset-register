@@ -227,7 +227,7 @@
 <div id="toast" class="toast"></div>
 
 <div class="app-header">
-  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v10.4</span></div>
+  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v10.5</span></div>
   <div id="hdr-client" class="client-name">No client loaded</div>
   <div class="header-right">
     <button class="btn btn-secondary btn-sm" onclick="newClient()">+ New Client</button>
@@ -1586,13 +1586,19 @@ function renderDashboard() {
           }).join('');
         } else {
           moCells = amounts.map((v,i) => {
-            const m  = FY_MO[i];
-            const ov = getOverride(a.id, fyYear, m);
-            const cls = ov ? 'has-override' : (v===0?'zero':'');
-            const dot = ov ? '<span class="override-dot"></span>' : '';
+            const m      = FY_MO[i];
+            const confs  = (db.monthlyConfirmations||{})[String(fyYear)]||{};
+            const locked = confs[m]?.locked === true;
+            const inLedger = !!(db.ledger?.[a.id]?.[String(fyYear)]);
+            const ov     = getOverride(a.id, fyYear, m);
+            const dot    = ov ? '<span class="override-dot"></span>' : '';
+            // Colour: locked=black, draft(in ledger not locked)=orange, formula=red
+            const colour = locked ? 'inherit'
+                         : inLedger ? '#c87300'
+                         : v ? '#c00' : 'var(--text3)';
             return `<td class="r month-cell" onclick="openOverrideModal('${a.id}',${fyYear},'${m}')"
-                       style="cursor:pointer;font-size:11px;" title="${m}: click to override">
-              <span class="month-val ${cls}">${dot}${v?fmt(v):'—'}</span></td>`;
+                       style="cursor:pointer;font-size:11px;color:${colour};" title="${m}: click to override">
+              ${dot}${v?fmt(v):'—'}</td>`;
           }).join('');
         }
 
