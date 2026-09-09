@@ -227,7 +227,7 @@
 <div id="toast" class="toast"></div>
 
 <div class="app-header">
-  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v10.3</span></div>
+  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v10.4</span></div>
   <div id="hdr-client" class="client-name">No client loaded</div>
   <div class="header-right">
     <button class="btn btn-secondary btn-sm" onclick="newClient()">+ New Client</button>
@@ -2507,17 +2507,21 @@ function _confirmPostAndLock(fyYear, month, idx) {
   // Restore modal
   _cancelJournalModal();
 
-  // Write edited amounts to ledger — use lines from modal state (may have been edited)
+  // Write edited amounts to ledger — only write THIS month's index
+  // Never overwrite other months — they already have correct values
   if (!db.ledger) db.ledger = {};
   const editedAmounts = {};
   (lines || []).forEach(l => { editedAmounts[l.id] = parseFloat(l.amount) || 0; });
   (db.assets || []).forEach(a => {
-    // Use edited amount if present, otherwise formula amount
     const amt = editedAmounts[a.id] !== undefined
       ? editedAmounts[a.id]
       : (getMonthlyAmounts(a, fyYear)[idx] || 0);
     if (!db.ledger[a.id]) db.ledger[a.id] = {};
-    if (!db.ledger[a.id][String(fyYear)]) db.ledger[a.id][String(fyYear)] = new Array(12).fill(0);
+    // Preserve existing ledger — only initialise if no entry exists at all
+    if (!db.ledger[a.id][String(fyYear)]) {
+      db.ledger[a.id][String(fyYear)] = new Array(12).fill(0);
+    }
+    // Only write this month's index — leave all other months untouched
     db.ledger[a.id][String(fyYear)][idx] = amt;
   });
   // Lock month
