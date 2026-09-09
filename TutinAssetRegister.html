@@ -227,7 +227,7 @@
 <div id="toast" class="toast"></div>
 
 <div class="app-header">
-  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v10.5</span></div>
+  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v10.6</span></div>
   <div id="hdr-client" class="client-name">No client loaded</div>
   <div class="header-right">
     <button class="btn btn-secondary btn-sm" onclick="newClient()">+ New Client</button>
@@ -1481,7 +1481,13 @@ function renderDashboard() {
       <td class="r mono" style="font-weight:700;background:var(--surface2);">${fmt(grpRes)}</td>
       <td class="r mono" style="font-weight:700;background:var(--surface2);">(${fmt(grpAccumOpen)})</td>
       <td class="r mono" style="font-weight:700;background:var(--surface2);border-right:2px solid var(--border2);">${fmt(grpOpenBV)}</td>
-      ${_showMonthCols ? grpMo.map(v=>`<td class="r mono" style="font-weight:700;background:var(--surface2);">${v?fmt(v):'—'}</td>`).join('') : ''}
+      ${_showMonthCols ? FY_MO.map((m,i) => {
+        const confs2 = (db.monthlyConfirmations||{})[String(fyYear)]||{};
+        const locked2 = confs2[m]?.locked === true;
+        const hasLedger = [...existing,...additions,...disposals].some(a => db.ledger?.[a.id]?.[String(fyYear)]);
+        const colour = locked2 ? 'inherit' : hasLedger ? '#c87300' : grpMo[i] ? '#c00' : 'inherit';
+        return `<td class="r mono" style="font-weight:700;background:var(--surface2);color:${colour};">${grpMo[i]?fmt(grpMo[i]):'—'}</td>`;
+      }).join('') : ''}
       <td class="r mono" style="font-weight:700;background:var(--surface2);">${grpFY?fmt(grpFY):'—'}</td>
       <td class="r mono" style="font-weight:700;background:var(--surface2);">(${fmt(grpAccumClose)})</td>
       <td class="r mono" style="font-weight:700;background:var(--surface2);border-left:2px solid var(--border2);">${fmt(grpCloseBV)}</td>
