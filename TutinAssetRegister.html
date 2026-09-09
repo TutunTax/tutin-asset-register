@@ -227,7 +227,7 @@
 <div id="toast" class="toast"></div>
 
 <div class="app-header">
-  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v10.8</span></div>
+  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v10.9</span></div>
   <div id="hdr-client" class="client-name">No client loaded</div>
   <div class="header-right">
     <button class="btn btn-secondary btn-sm" onclick="newClient()">+ New Client</button>
@@ -1462,7 +1462,9 @@ function renderDashboard() {
       // The disposed asset existed at opening so its accum is correctly in Existing
       grpCost -= a.cost || 0;
     });
-    const grpOpenBV     = grpCost - grpAccumOpen;
+    const grpExistingCost = existing.reduce((s,a)=>s+(a.cost||0),0)
+                          - disposals.reduce((s,a)=>s+(a.cost||0),0);
+    const grpOpenBV     = grpExistingCost - grpAccumOpen + disposals.reduce((s,a)=>s+getAccumDeprForFY(a,fyYear-1),0);
     const grpAccumClose = [...existing,...additions].reduce((s,a)=>s+getAccumDeprForFY(a,fyYear),0)
                         - disposals.reduce((s,a)=>s+getAccumDeprForFY(a,fyYear-1),0);
     const grpCloseBV    = grpCost - grpAccumClose;
@@ -1560,7 +1562,9 @@ function renderDashboard() {
         const residual = a.residual || 0;
         const accumPrior = getAccumDeprForFY(a, fyYear-1);
         const accumCur   = getAccumDeprForFY(a, fyYear);
-        const openBV     = Math.max(residual, cost - accumPrior);
+        const acqDate2   = a.acquisitionDate ? new Date(a.acquisitionDate) : null;
+        const isAddition2 = acqDate2 && acqDate2 >= fyStart && acqDate2 <= fyEnd;
+        const openBV     = isAddition2 ? 0 : Math.max(residual, cost - accumPrior);
         const closingBV  = Math.max(residual, cost - accumCur);
         const fyDepr     = Math.max(0, accumCur - accumPrior);
         const taxOpen    = getTaxAccumDepr(a, fyYear-1) || 0;
@@ -1652,7 +1656,7 @@ function renderDashboard() {
 
   // Grand total row
   const gTotRes = (db.assets||[]).reduce((s,a) => s + (a.disposed?-1:1)*(a.residual||0), 0);
-  const gTotOpenBV  = gTotCost - gTotAccum;
+  const gTotOpenBV  = gTotBV; // gTotBV accumulates grpOpenBV which excludes additions
   const gTotCloseBV = activeGroups => {
     let tot = 0;
     (db.assets||[]).filter(a=>!a.disposed).forEach(a => {
