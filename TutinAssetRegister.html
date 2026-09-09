@@ -227,7 +227,7 @@
 <div id="toast" class="toast"></div>
 
 <div class="app-header">
-  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v10.6</span></div>
+  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v10.7</span></div>
   <div id="hdr-client" class="client-name">No client loaded</div>
   <div class="header-right">
     <button class="btn btn-secondary btn-sm" onclick="newClient()">+ New Client</button>
@@ -1905,8 +1905,15 @@ function renderMovementTable(fyYear, groupData, groups) {
                          new Date(asset.disposalDate) <= fyEnd;
 
       if (isAddition) {
-        accAdd += asset.cost || 0;
-        taxAdd += asset.cost || 0;
+        accAdd   += asset.cost || 0;
+        accDepr  += fyAccDepr;
+        accClose += bv;
+        taxAdd   += asset.cost || 0;
+        if (taxAccum !== null) {
+          grpHasTax = true; hasAnyTax = true;
+          taxDepr  += fyTaxDepr || 0;
+          taxClose += taxBV || 0;
+        }
       } else if (isDisposal) {
         // Disposal: opening BV goes into opening, disposal value = opening BV (removed)
         accOpen += prevAccBV;
@@ -1920,8 +1927,8 @@ function renderMovementTable(fyYear, groupData, groups) {
         if (prevTaxBV !== null) taxOpen += prevTaxBV;
       }
 
-      // Depreciation: only charge for non-disposal assets (disposal depreciation is reversed)
-      if (!isDisposal) {
+      // Depreciation and closing CV for non-disposal, non-addition assets
+      if (!isDisposal && !isAddition) {
         accDepr  += fyAccDepr;
         accClose += bv;
         if (taxAccum !== null) {
@@ -1930,7 +1937,7 @@ function renderMovementTable(fyYear, groupData, groups) {
           taxDepr  += fyTaxDepr || 0;
           taxClose += taxBV || 0;
         }
-      } else {
+      } else if (isDisposal) {
         // Disposed asset: accClose = 0 (derecognised)
         if (taxAccum !== null) { grpHasTax = true; hasAnyTax = true; }
       }
