@@ -227,7 +227,7 @@
 <div id="toast" class="toast"></div>
 
 <div class="app-header">
-  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v10.9</span></div>
+  <div class="logo">TutinBooks <span style="font-size:10px;font-weight:400;opacity:.6;">v11.0</span></div>
   <div id="hdr-client" class="client-name">No client loaded</div>
   <div class="header-right">
     <button class="btn btn-secondary btn-sm" onclick="newClient()">+ New Client</button>
@@ -1659,8 +1659,14 @@ function renderDashboard() {
   const gTotOpenBV  = gTotBV; // gTotBV accumulates grpOpenBV which excludes additions
   const gTotCloseBV = activeGroups => {
     let tot = 0;
-    (db.assets||[]).filter(a=>!a.disposed).forEach(a => {
-      tot += Math.max(a.residual||0, (a.cost||0) - getAccumDeprForFY(a, fyYear));
+    (db.assets||[]).forEach(a => {
+      // Only include assets that existed at the end of this FY
+      if (a.acquisitionDate && new Date(a.acquisitionDate) > fyEnd) return;
+      // Exclude assets disposed before this FY started
+      if (a.disposed && a.disposalDate && new Date(a.disposalDate) < fyStart) return;
+      // Exclude disposed assets (they're derecognised)
+      if (a.disposed) return;
+      tot += Math.max(a.residual||0, Math.max(1, (a.cost||0) - getAccumDeprForFY(a, fyYear)));
     });
     return tot;
   };
@@ -1690,8 +1696,8 @@ function renderDashboard() {
       <div class="stat-value">R ${fmt(gTotCost)}</div>
       <div class="stat-sub">${allAssets.length} active assets</div></div>
     <div class="stat-card"><div class="stat-label">Accounting BV</div>
-      <div class="stat-value">R ${fmt(gTotBV)}</div>
-      <div class="stat-sub">Accum depr: R ${fmt(gTotAccum)}</div></div>
+      <div class="stat-value">R ${fmt(gCloseBV)}</div>
+      <div class="stat-sub">Accum depr: R ${fmt(gTotAccum + gTotFY)}</div></div>
     <div class="stat-card"><div class="stat-label">Tax BV</div>
       <div class="stat-value">R ${fmt(Math.max(0,gTotTaxBV))}</div>
       <div class="stat-sub">Accum tax depr: R ${fmt(gTotAccum + gTotTaxDepr)}</div></div>
